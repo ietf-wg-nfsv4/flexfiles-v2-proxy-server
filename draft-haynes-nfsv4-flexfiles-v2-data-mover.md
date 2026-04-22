@@ -228,11 +228,30 @@ reasonable future extension.
 
 # Use Cases
 
-Six motivating scenarios converge on the same mechanism.  In
-each case a registered proxy becomes the source of truth for a
-file's data during a transition, and clients are redirected to
-route I/O through that proxy rather than directly to the
-original layout's data servers.
+Seven motivating scenarios converge on the same mechanism.
+Six of them are transient transitions on the file itself: the
+file is changing state (being ingested, re-coded, evacuated,
+reconstructed, migrated between transport-security profiles,
+or migrated between filehandle backends), and the transition
+is what the PS drives to completion.  The seventh is
+qualitatively different: the file is not changing, but
+specific clients -- those that cannot participate in the
+file's native codec -- are routed through a PS persistently,
+for as long as they are active.
+
+The distinction matters for how the MDS schedules work.
+Transient transitions have a terminal state; the MDS expects
+each one to complete (via terminal PROXY_PROGRESS) and then
+to retire the associated layout.  The persistent routing case
+has no terminal state for the file as a whole; the PS stays in
+the layouts of codec-ignorant clients as long as those
+clients are open.
+
+In every case, a registered PS becomes the source of truth
+for a file's data during the operation, and clients are
+redirected to route I/O through that PS rather than directly
+to the original layout's data servers.  The individual
+scenarios are described below.
 
 ## Administrative Ingest
 
@@ -1200,42 +1219,48 @@ all the information a client-side shortcut needs.
 
 # Layout Shape During a Proxy Operation {#sec-layout-shape}
 
-When a CB_PROXY_MOVE or CB_PROXY_REPAIR is active for a file, the
-layout the MDS hands out to clients contains:
+The layout the MDS hands out to clients while a proxy
+operation is active is the mechanism's sole client-facing
+surface.  Everything else in this document -- the session,
+the ops, the credential-forwarding rules -- is between the
+MDS and the PS.  The layout shape is therefore what a client
+implementer needs to read to know how its code interacts with
+a proxied file.
 
--  The **proxy DS entry** at the head of ffs_data_servers (or
-   otherwise flagged for routing; a new flag is defined below).
-   This entry names the selected proxy.
+When a CB_PROXY_MOVE or CB_PROXY_REPAIR is active for a file,
+the layout the MDS hands out to clients contains a **proxy
+DS entry** at the head of ffs_data_servers (or otherwise
+flagged for routing; see the flag below).  This entry names
+the selected PS.  Source and destination DS entries MAY also
+appear in the layout at the MDS's discretion, but in the
+simplest case the PS is the only visible DS, and the source
+and destination mirror sets are internal to the PS.
 
--  Optional source and destination DS entries, visible or
-   hidden to the client at the MDS's discretion.  In the
-   simplest case the proxy is the only visible DS; source and
-   destination mirror sets are internal to the proxy.
-
--  A new flag on ffv2_ds_flags4:
+The PROXY flag is a new bit on ffv2_ds_flags4:
 
 ~~~
 const FFV2_DS_FLAGS_PROXY = 0x00000040;  // TBD, IANA alloc
 ~~~
 
-When FFV2_DS_FLAGS_PROXY is set on any data server entry in a
-layout, clients MUST direct all CHUNK I/O for this file to that
-DS rather than to any other data server in the layout.  The
-proxy DS internally dispatches reads and writes to the source
+When FFV2_DS_FLAGS_PROXY is set on any data server entry in
+a layout, clients MUST direct all CHUNK I/O for this file to
+that DS rather than to any other data server in the layout.
+The PS internally dispatches reads and writes to the source
 and destination DSes.
 
 ## Single-Layout Model
 
-This design uses a single layout with a PROXY-flagged entry,
-not two linked layouts.  Rationale:
-
--  pNFS clients already handle single layouts cleanly; no new
-   layout-linkage mechanism is needed.
--  The client's view ("the file's DS is the proxy") is the
-   truth during the operation.  Exposing the source and
-   destination DSes directly would invite confusion.
--  Late-arriving clients see the proxy layout from the start;
-   no separate path for them.
+This design uses a single layout with a PROXY-flagged entry
+rather than two linked layouts.  pNFS clients already handle
+single layouts cleanly, so no new layout-linkage mechanism is
+needed; the client's view ("the file's DS is the PS") is the
+truth during the operation, and exposing the source and
+destination DSes directly would invite confusion about which
+entry to address; and late-arriving clients see the proxy
+layout from the start without any separate setup path.  The
+alternative (a source layout plus a destination layout linked
+by a redirector record) was considered and rejected on those
+three grounds.
 
 # Client Behavior
 
@@ -1274,6 +1299,25 @@ go through the replacement PS (or, if the new layout has no
 PROXY-flagged entry, directly to the DSes named there).
 
 # State Machine
+
+A file's participation in a proxy operation passes through
+four states: READY (no operation in flight), PROXY_ACTIVE
+(the PS is driving a move or repair), COMMITTING (the PS has
+reported terminal success and the MDS is recalling the old
+layout), and DONE (clients are on the post-move layout,
+source DSes retired).  The state is MDS-local: clients never
+observe these state names directly, but a client's behaviour
+is shaped by which layout the MDS is currently handing out.
+A given file spends most of its lifetime in READY; a proxy
+operation is a relatively short excursion through the other
+three states, after which the file returns to READY with a
+new layout in place (or, on cancellation or failure, with
+the old layout preserved).
+
+The diagram below shows the happy-path progression; the
+table that follows enumerates every state transition
+including the unhappy ones (cancellation, PS failure without
+replacement).
 
 ~~~
             (admin, policy, repair, or maintenance trigger)
@@ -1689,6 +1733,19 @@ Implementations MUST treat unknown bits as reserved and MUST
 NOT assign meaning to them locally.
 
 # Interaction with the Main Draft {#interaction}
+
+The mechanism this document specifies is built on top of
+four constructs that {{I-D.haynes-nfsv4-flexfiles-v2}}
+defines: the chunk_guard4 compare-and-swap primitive, the
+CHUNK_LOCK mechanism, the CB_CHUNK_REPAIR per-chunk repair
+callback, and the TRUST_STATEID / REVOKE_STATEID control
+plane.  None of these are modified or extended here; this
+section states how each is used (or explicitly excluded)
+when a PS is active on a file.  Two of the four
+(chunk_guard4, CHUNK_LOCK) describe what the PS does on the
+DS side of the mechanism; the other two (CB_CHUNK_REPAIR,
+TRUST_STATEID) describe how MDS-side bookkeeping composes
+with a live proxy operation.
 
 ## chunk_guard4
 
