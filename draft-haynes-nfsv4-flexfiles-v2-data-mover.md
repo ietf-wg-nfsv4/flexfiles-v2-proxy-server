@@ -1472,13 +1472,12 @@ servers.  This is a deployment concern, not a protocol one.
 A host that does not implement the proxy server role simply
 does not call PROXY_REGISTRATION and is never selected for a
 CB_PROXY_MOVE or CB_PROXY_REPAIR.  A deployment with no
-registered PS falls back to:
-
--  Per-chunk CB_CHUNK_REPAIR for single-shard repair.
--  Admin-coordinated offline procedures for policy transitions
-   and DS evacuation.
--  Blocking DS maintenance (the DS cannot drain through a
-   PS).
+registered PS falls back to per-chunk CB_CHUNK_REPAIR for
+single-shard repair, to admin-coordinated offline procedures
+for policy transitions and DS evacuation, and to blocking
+DS maintenance -- the DS cannot drain through a PS, so it
+must remain reachable to clients throughout its service
+life.
 
 Deployments SHOULD ensure at least one registered PS exists
 per failure domain to avoid a single point of failure on
