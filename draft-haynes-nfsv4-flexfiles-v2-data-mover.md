@@ -37,13 +37,13 @@ informative:
 Parallel NFS (pNFS) with the Flexible Files Version 2 layout
 type supports client-side erasure coding and per-chunk repair
 between clients and data servers.  This document extends that
-architecture with a "data mover" role: a registered proxy that
-the metadata server directs, via dedicated MDS-to-proxy
-operations, to move a file from one layout to another or to
-reconstruct a whole file from surviving shards.  The same
-mechanism provides codec translation for clients that cannot
-participate in a file's native erasure code, including NFSv3
-clients.
+architecture with a proxy server (PS) role: a registered peer
+of the metadata server that the metadata server directs, via
+callback operations on a dedicated session, to move a file
+from one layout to another or to reconstruct a whole file
+from surviving shards.  The same mechanism provides codec
+translation for clients that cannot participate in a file's
+native erasure code, including NFSv3 clients.
 
 --- note_Note_to_Readers
 
@@ -86,13 +86,14 @@ Three classes of work are outside the per-chunk repair model:
     in the file's native codec -- including NFSv3 clients --
     still needs to read and write the file.
 
-This document specifies a **data mover** role to address those
-three cases with a single mechanism: a proxy that registers with
-the metadata server, receives MDS-initiated directives on a
-dedicated control session, and provides the server-side of a
-client-facing data path during the operation.  Clients discover
-the proxy through the normal pNFS layout path -- a layout that
-names the proxy with a new data-server flag
+This document specifies a **proxy server (PS)** role to
+address those three cases with a single mechanism: the PS
+opens a session to the metadata server and registers its
+capabilities; the MDS issues callback operations on the
+session's back-channel to direct the PS to move, repair,
+poll, or cancel; the PS reports progress on the fore-channel.
+Clients discover the PS through the normal pNFS layout path
+-- a layout that names the PS with a new data-server flag
 (FFV2_DS_FLAGS_PROXY) -- and route their I/O through it while
 it is active.
 
@@ -118,19 +119,27 @@ time; coexistence rules are in {{interaction}}.
 
 ## In Scope
 
--  A **registered proxy** role that a data server (or other
-   co-located entity) can assume.
--  An op **PROXY_REGISTRATION** by which a proxy declares its
-   capabilities and endpoint to the MDS.
--  Two MDS-to-proxy directive ops on the tight-coupling control
-   session:
-   -  **CB_PROXY_MOVE** -- move a file from a source layout to a
-      destination layout.
-   -  **CB_PROXY_REPAIR** -- a specialization of CB_PROXY_MOVE where
-      the source layout is degraded and the destination layout
-      is the reconstructed geometry.
--  The layout conventions clients see during a proxy operation,
-   and how clients discover the proxy.
+-  A **proxy server (PS)** role, distinct from the MDS and DS
+   roles defined in {{I-D.haynes-nfsv4-flexfiles-v2}}.
+-  A dedicated MDS <-> PS session, opened by the PS.
+   Fore-channel (PS -> MDS) carries PS-initiated ops;
+   back-channel (MDS -> PS) carries MDS-initiated callback
+   ops.
+-  Two PS-to-MDS regular ops on the fore-channel:
+   -  **PROXY_REGISTRATION** -- PS declares codec set,
+      affinity token, and lease.
+   -  **PROXY_PROGRESS** -- PS reports interim and terminal
+      status of an in-flight move or repair.
+-  Four MDS-to-PS callback ops on the back-channel:
+   -  **CB_PROXY_MOVE** -- direct the PS to move a file from
+      a source layout to a destination layout.
+   -  **CB_PROXY_REPAIR** -- specialization of CB_PROXY_MOVE
+      where the source layout is degraded.
+   -  **CB_PROXY_STATUS** -- poll the PS for the current
+      status of an operation.
+   -  **CB_PROXY_CANCEL** -- cancel an in-flight operation.
+-  The layout conventions clients see during a proxy
+   operation, and how clients discover the PS.
 -  **Codec translation for codec-ignorant clients**, including
    NFSv3 clients.  The same proxy machinery that handles move
    and repair also provides the persistent-per-client
@@ -356,15 +365,16 @@ A write flows:
 
 ### Why the same PROXY_REGISTRATION machinery
 
-The registered-proxy mechanism gives the MDS the information
-it needs for translation-proxy selection: `prr_codecs`
-enumerates the codecs the proxy can translate between, the
-control session carries MDS directives to the proxy, and the
-lease bounds the relationship.  No new op is required for the
-translation case -- the existing `PROXY_REGISTRATION` covers
-it.  `CB_PROXY_MOVE` and `CB_PROXY_REPAIR` are not used for pure
-translation (the file is not moving or being repaired); the
-proxy simply serves the codec-ignorant client's I/O requests
+The registered-PS mechanism gives the MDS the information it
+needs for translation-proxy selection: `prr_codecs` enumerates
+the codecs the PS can translate between, the MDS <-> PS
+session (fore-channel and back-channel) carries both
+directions of control-plane traffic, and the lease bounds the
+relationship.  No new op is required for the translation case
+-- the existing `PROXY_REGISTRATION` covers it.  `CB_PROXY_MOVE`
+and `CB_PROXY_REPAIR` are not used for pure translation (the
+file is not moving or being repaired); the PS simply serves
+the codec-ignorant client's I/O requests
 against the unchanged source layout.
 
 # Design Model
@@ -641,11 +651,12 @@ point.
 
 ### DESCRIPTION
 
-A data server (or other co-located entity) calls
-PROXY_REGISTRATION on the MDS-to-proxy control session to
-declare its capabilities and endpoint.  The MDS records the
-registration and MAY select that proxy for subsequent
-CB_PROXY_MOVE and CB_PROXY_REPAIR directives.
+A proxy server (PS) calls PROXY_REGISTRATION on the
+fore-channel of its session to the MDS
+({{sec-design-session}}) to declare its capabilities.  The
+MDS records the registration and MAY select that PS for
+subsequent CB_PROXY_MOVE and CB_PROXY_REPAIR directives on
+the session's back-channel.
 
 The prr_codecs field lists the ffv2_coding_type4 values the
 proxy supports.  The proxy MUST be able to encode, decode, and
@@ -686,12 +697,13 @@ operation, the layout issued to clients includes a
 ffv2_data_server4 entry pointing at the proxy's existing
 deviceinfo.
 
-PROXY_REGISTRATION is issued on the dedicated MDS-to-proxy
-control session (per the Tight Coupling Control Session
-subsection of {{I-D.haynes-nfsv4-flexfiles-v2}}).  The proxy
-MUST present EXCHGID4_FLAG_USE_PNFS_MDS on that session so
-the MDS can gate the PROXY_* ops the same way it gates
-TRUST_STATEID.
+PROXY_REGISTRATION is issued on the fore-channel of the
+MDS <-> PS session.  That session is opened by the PS, not by
+the MDS; it is distinct from the MDS -> DS tight-coupling
+control session defined by {{I-D.haynes-nfsv4-flexfiles-v2}}
+even when the same host acts as both DS and PS.  The PS MUST
+present EXCHGID4_FLAG_USE_NON_PNFS on the session so that
+the MDS can distinguish it from a regular pNFS client.
 
 ## Operation 92: PROXY_PROGRESS - Report Progress on an In-Flight Proxy Operation {#sec-PROXY_PROGRESS}
 
@@ -1518,19 +1530,20 @@ own authority on directives from the MDS).
     translator, not an authority.  This is what prevents
     proxy deployment from becoming a blanket ACL override.
 
-4.  **Proxy service identity is for the control plane only.**
-    The proxy MAY, and typically MUST, use its own service
+4.  **PS service identity is for the control plane only.**
+    The PS MAY, and typically MUST, use its own service
     identity for:
-    -  The MDS-to-proxy control session (EXCHANGE_ID with
-       EXCHGID4_FLAG_USE_PNFS_MDS, the session on which
-       PROXY_REGISTRATION and CB_PROXY_MOVE / CB_PROXY_REPAIR
-       directives flow).
-    -  Peer-DS session setup for proxy-driven data movement
+    -  The MDS <-> PS session (the session the PS opens to
+       the MDS, on which PROXY_REGISTRATION and PROXY_PROGRESS
+       flow on the fore-channel and CB_PROXY_MOVE /
+       CB_PROXY_REPAIR / CB_PROXY_STATUS / CB_PROXY_CANCEL
+       flow on the back-channel).
+    -  Peer-DS session setup for PS-driven data movement
        (reading source DSes, writing destination DSes under
        a CB_PROXY_MOVE that the MDS has authorized).
-    -  Proxy housekeeping.
+    -  PS housekeeping.
 
-    The proxy's service identity MUST NOT be used for
+    The PS's service identity MUST NOT be used for
     client-initiated file data operations.
 
 5.  **Failure mode on missing credentials.**  If the proxy
@@ -1550,10 +1563,9 @@ Deployment-level requirements:
    registering as a proxy and then receiving client-forwarded
    credentials.
 
--  The MDS-to-proxy control session MUST use RPCSEC_GSS
-   {{RFC7861}} or RPC-over-TLS {{RFC9289}} with mutual
-   authentication.  AUTH_SYS on the control session is
-   forbidden.
+-  The MDS <-> PS session MUST use RPCSEC_GSS {{RFC7861}} or
+   RPC-over-TLS {{RFC9289}} with mutual authentication.
+   AUTH_SYS on the MDS <-> PS session is forbidden.
 
 -  Deployments SHOULD audit both the proxy's credential-
    forwarding behavior (the proxy logs what it forwards) and
