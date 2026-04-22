@@ -468,6 +468,89 @@ deployment attributes).
     the start; clients that held an older layout are recalled
     via CB_LAYOUTRECALL and reacquire.
 
+## Message Sequence: Policy-Driven Move
+
+The simplest flow -- a quiesced whole-file move for a policy
+transition.  Shown as a wire-level message sequence between
+the three protocol actors; clients are elided because in the
+quiesced case they are recalled before the PS work starts.
+
+~~~
+  PS                                MDS
+  |                                 |
+  | ---- CREATE_SESSION ----------> | (PS opens session to MDS)
+  | <--- session est. ------------- |
+  |                                 |
+  | ---- PROXY_REGISTRATION ------> | (advertise codecs, affinity)
+  | <--- reg_id, granted_lease ---- |
+  |                                 |
+  |                                 | <-- (policy decides: move)
+  |                                 |
+  | <---- CB_PROXY_MOVE ----------- | (back-channel)
+  | ----- operation_id ----------->|
+  |                                 |
+  |  [PS drives move: reads source  |
+  |   DSes, encodes per destination |
+  |   codec, writes destination     |
+  |   DSes]                         |
+  |                                 |
+  | ---- PROXY_PROGRESS ----------> | (interim, bytes_done > 0)
+  | <--- NFS4_OK ------------------ |
+  |                                 |
+  |  ...                            |
+  |                                 |
+  | ---- PROXY_PROGRESS ----------> | (terminal, ppa_status=
+  |                                 |  NFS4_OK, ppa_terminal=true)
+  | <--- NFS4_OK ------------------ |
+  |                                 |
+  |                                 | --- CB_LAYOUTRECALL --->
+  |                                 |     (to affected clients)
+  |                                 |
+  |                                 | <-- LAYOUTRETURN ------
+  |                                 |     (from each client)
+  |                                 |
+  |                                 | (MDS retires source DSes
+  |                                 |  and issues new layout
+  |                                 |  naming destination DSes)
+  v                                 v
+~~~
+{: #fig-seq-policy-move title="Message sequence for a policy-driven move"}
+
+## Message Sequence: Whole-File Repair
+
+Same shape as a move, but the source layout is degraded and
+the MDS issues CB_PROXY_REPAIR.  Terminal outcomes:
+
+-  **NFS4_OK**: the PS reconstructed the file; the MDS
+   proceeds as in {{fig-seq-policy-move}}.
+-  **NFS4ERR_PAYLOAD_LOST**: fewer than k shards survived
+   across the mirror set; the PS sends a terminal
+   PROXY_PROGRESS with this status, and the MDS marks the
+   affected byte ranges lost.  No CB_LAYOUTRECALL is issued
+   because there is no valid destination layout to issue.
+
+## Message Sequence: MDS-Initiated Cancellation
+
+~~~
+  PS                                MDS
+  |                                 |
+  |  [in-flight CB_PROXY_MOVE]      |
+  |                                 |
+  |                                 | <-- (cancel decision)
+  | <---- CB_PROXY_CANCEL --------- |
+  | ----- NFS4_OK ----------------> |
+  |                                 |
+  |  [PS stops work, releases       |
+  |   resources]                    |
+  |                                 |
+  | ---- PROXY_PROGRESS ----------> | (terminal, ppa_status=
+  |                                 |  implementation-chosen
+  |                                 |  non-OK code)
+  | <--- NFS4_OK ------------------ |
+  v                                 v
+~~~
+{: #fig-seq-cancel title="Message sequence for MDS-initiated cancellation"}
+
 # New NFSv4.2 Operations {#sec-new-ops}
 
 This document defines two new NFSv4.2 operations that a proxy
@@ -1166,26 +1249,27 @@ proxy, directly to the DSes named there).
                          | only       |
                          +-----+------+
                                |
-                               | MDS selects registered proxy,
+                               | MDS selects registered PS,
                                | issues CB_PROXY_MOVE (or
-                               | CB_PROXY_REPAIR) on control
-                               | session
+                               | CB_PROXY_REPAIR) on the
+                               | PS session's back-channel
                                v
                          +--------------+
                          | PROXY_ACTIVE |
                          | clients see  |
                          | layout with  |
-                         | proxy DS at  |
+                         | PS DS at     |
                          | head of      |
                          | ffs_data_    |
                          | servers;     |
-                         | proxy drives |
+                         | PS drives    |
                          | source->dest |
                          +-----+--------+
                                |
-                               | proxy reports completion
-                               | (destination fully populated
-                               | and consistent)
+                               | PS issues terminal
+                               | PROXY_PROGRESS
+                               | (ppa_terminal=true,
+                               |  ppa_status=NFS4_OK)
                                v
                          +------------+
                          | COMMITTING |
@@ -1212,10 +1296,10 @@ proxy, directly to the DSes named there).
 
 | From | To | Trigger | Actions |
 |------|-----|---------|---------|
-| READY | PROXY_ACTIVE | MDS decides to move/repair | MDS issues CB_PROXY_MOVE or CB_PROXY_REPAIR on control session; MDS starts handing out proxy layouts |
-| PROXY_ACTIVE | COMMITTING | Proxy reports completion | MDS begins CB_LAYOUTRECALL fan-out |
-| COMMITTING | DONE | All clients LAYOUTRETURNed | MDS issues post-move layouts; source DSes retired |
-| PROXY_ACTIVE | READY | Proxy failed, no replacement | MDS cancels; layouts revert to pre-move source set |
+| READY | PROXY_ACTIVE | MDS decides to move or repair | MDS issues CB_PROXY_MOVE or CB_PROXY_REPAIR on the PS session's back-channel; MDS starts handing out layouts with FFV2_DS_FLAGS_PROXY set on the PS entry |
+| PROXY_ACTIVE | COMMITTING | PS issues terminal PROXY_PROGRESS with ppa_status=NFS4_OK | MDS begins CB_LAYOUTRECALL fan-out to clients still on the old layout |
+| COMMITTING | DONE | All clients have LAYOUTRETURNed | MDS issues post-move layouts; source DSes retired |
+| PROXY_ACTIVE | READY | PS failed and no replacement available; or MDS-initiated cancellation via CB_PROXY_CANCEL | MDS reverts layouts to pre-move source set |
 
 # Proxy Failure and Recovery
 
