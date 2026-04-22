@@ -965,18 +965,19 @@ PS is expected to have completed the move.  Missing the
 deadline does not corrupt state, but the MDS MAY cancel (via
 CB_PROXY_CANCEL, {{sec-CB_PROXY_CANCEL}}) and reassign.
 
-The cpma_flags field currently defines one flag:
-
--  CPM_FLAG_DUAL_WRITE: during the move the PS accepts client
-   writes and replicates them to both source and destination
-   mirror sets.  On completion the source is retired without
-   rollback risk.  Used for online transitions where clients
-   continue writing.
-
-   When unset, the move is quiesced: the MDS recalls client
-   layouts for the duration, clients that open during the move
-   are directed through the PS, and the PS does not replicate
-   to the source because no client is writing.
+The cpma_flags field currently defines one flag,
+CPM_FLAG_DUAL_WRITE.  When set, the move proceeds online: the
+PS accepts client writes during the operation and replicates
+each write to both the source and destination mirror sets,
+and on completion the source is retired without rollback
+risk.  When unset, the move is quiesced: the MDS recalls
+client layouts for the duration, any client that opens the
+file during the move is directed through the PS, and the PS
+does not replicate to the source because no client is
+writing.  The choice between the two modes is a
+deployment-policy decision; PS implementations MUST support
+the quiesced mode (the unset case) and SHOULD support
+CPM_FLAG_DUAL_WRITE.
 
 On success the PS returns a PS-assigned cpmr_operation_id for
 the in-flight move, used for progress reporting
