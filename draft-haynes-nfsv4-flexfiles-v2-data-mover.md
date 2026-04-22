@@ -294,7 +294,7 @@ This case also covers:
 -  Backend-opaque FH migration where the DS's FH structure is
    internally versioned and old clients hold stale versions.
 
-## Codec Translation for Codec-Ignorant Clients
+## Codec Translation for Codec-Ignorant Clients {#sec-codec-translation}
 
 The coding-type registry defined in the IANA Considerations of
 {{I-D.haynes-nfsv4-flexfiles-v2}} is expected to grow.  Not
@@ -1489,55 +1489,56 @@ using CHUNK semantics.  This is the same pattern
 
 ## Credential Forwarding and the Privilege Boundary
 
-A translating proxy (see Codec Translation for Codec-Ignorant
-Clients) has structurally elevated privilege by design.  To
-perform its management tasks -- moves, repairs, evacuations,
-cross-tenant re-exports -- the deployment grants the proxy's
+A translating PS (see {{sec-codec-translation}}) has
+structurally elevated privilege by design.  To perform its
+management tasks -- moves, repairs, evacuations,
+cross-tenant re-exports -- the deployment grants the PS's
 service identity broad access: typically not-root-squashed,
 often read/write to every file in the namespace, and session
 authority to every DS.  That privilege is intentional.
 
-A codec-ignorant client that reaches the proxy, however,
-arrives with its own RPC credentials that the proxy does not
-itself need in order to function.  An NFSv3 client's uid/gid,
-an AUTH_SYS-squashed identity, an RPCSEC_GSS principal -- none
-of these are the proxy's own.  If the proxy ignores the
-client's credentials and issues MDS / DS operations under its
-own service identity when translating client I/O, every
-client that reaches the proxy silently inherits the proxy's
-privilege.  This is a protocol-level privilege-escalation
-vector, and this document calls it out rather than hiding it.
+A codec-ignorant client that reaches the PS, however, arrives
+with its own RPC credentials that the PS does not itself need
+in order to function.  An NFSv3 client's uid/gid, an
+AUTH_SYS-squashed identity, an RPCSEC_GSS principal -- none of
+these are the PS's own.  If the PS ignores the client's
+credentials and issues MDS or DS operations under its own
+service identity when translating client I/O, every client
+that reaches the PS silently inherits the PS's privilege.
+This is a protocol-level privilege-escalation vector, and
+this document calls it out rather than hiding it.
 
-The normative requirements below apply whenever a proxy is
+The normative requirements below apply whenever a PS is
 translating client-initiated file I/O (as distinct from
-proxy-driven move / repair work, which runs under the proxy's
-own authority on directives from the MDS).
+PS-driven move / repair work, which runs under the PS's own
+authority on directives from the MDS).
 
-1.  **Credential pass-through.**  The proxy MUST present the
+1.  **Credential pass-through.**  The PS MUST present the
     client's credentials (RPC auth flavor and principal) on
     every MDS or DS operation it issues as a consequence of a
     client-initiated request.  Specifically, a client `READ`
-    that the proxy expands into `LAYOUTGET` + `CHUNK_READ`
-    MUST carry the client's credentials on both the
-    `LAYOUTGET` against the MDS and the `CHUNK_READ` against
-    the DSes.  The proxy MUST NOT substitute its own service
-    identity for client-initiated operations.
+    that the PS expands into `LAYOUTGET` + `CHUNK_READ` MUST
+    carry the client's credentials on both the `LAYOUTGET`
+    against the MDS and the `CHUNK_READ` against the DSes.
+    The PS MUST NOT substitute its own service identity for
+    client-initiated operations.
 
 2.  **No squash inversion.**  If the client arrives with a
     root-squashed identity (for example, uid 0 mapped to
     nobody by the NFSv3 export configuration on the
-    client-facing side of the proxy), the proxy MUST preserve
-    the squashed identity when forwarding.  The proxy MUST NOT
+    client-facing side of the PS), the PS MUST preserve the
+    squashed identity when forwarding.  The PS MUST NOT
     translate a client's squashed credentials back into
-    unsquashed root, even though the proxy's own identity is
+    unsquashed root, even though the PS's own identity is
     typically unsquashed.
 
 3.  **Authorization remains with the MDS.**  The MDS MUST
-    perform access-control checks against the forwarded client
-    credentials, not against the proxy's service identity, for
-    any client-initiated file operation.  The proxy is a
-    translator, not an authority.  This is what prevents
-    proxy deployment from becoming a blanket ACL override.
+    perform access-control checks against the forwarded
+    client credentials, not against the PS's service
+    identity, for any client-initiated file operation.  The
+    PS is a translator, not an authority.  This is what
+    prevents PS deployment from becoming a blanket ACL
+    override.
 
 4.  **PS service identity is for the control plane only.**
     The PS MAY, and typically MUST, use its own service
@@ -1555,53 +1556,55 @@ own authority on directives from the MDS).
     The PS's service identity MUST NOT be used for
     client-initiated file data operations.
 
-5.  **Failure mode on missing credentials.**  If the proxy
+5.  **Failure mode on missing credentials.**  If the PS
     cannot forward a client's credentials for some reason
-    (e.g., the client presented AUTH_NONE, or the client-facing
-    side used a security flavor the proxy cannot propagate),
-    the proxy MUST reject the client operation with the
-    equivalent of NFS4ERR_ACCESS (or NFS3ERR_ACCES for NFSv3
-    clients).  The proxy MUST NOT fall back to serving the
+    (e.g., the client presented AUTH_NONE, or the
+    client-facing side used a security flavor the PS cannot
+    propagate), the PS MUST reject the client operation with
+    the equivalent of NFS4ERR_ACCESS (or NFS3ERR_ACCES for
+    NFSv3 clients).  The PS MUST NOT fall back to serving the
     operation under its own identity.
 
 Deployment-level requirements:
 
--  PROXY_REGISTRATION MUST be allowlisted.  An unknown DS
+-  PROXY_REGISTRATION MUST be allowlisted.  An unknown host
    presenting PROXY_REGISTRATION MUST be rejected.  This is
    the only wire-level defense against a hostile entity
-   registering as a proxy and then receiving client-forwarded
+   registering as a PS and then receiving client-forwarded
    credentials.
 
 -  The MDS <-> PS session MUST use RPCSEC_GSS {{RFC7861}} or
    RPC-over-TLS {{RFC9289}} with mutual authentication.
    AUTH_SYS on the MDS <-> PS session is forbidden.
 
--  Deployments SHOULD audit both the proxy's credential-
-   forwarding behavior (the proxy logs what it forwards) and
-   the MDS's authorization checks (the MDS logs what principal
-   authorized each operation).  Divergence between the two
-   indicates a credential-forwarding bug or compromise.
+-  Deployments SHOULD audit both the PS's credential-
+   forwarding behavior (the PS logs what it forwards) and
+   the MDS's authorization checks (the MDS logs what
+   principal authorized each operation).  Divergence between
+   the two indicates a credential-forwarding bug or
+   compromise.
 
 What the protocol cannot defend against:
 
--  A compromised proxy has direct access to whatever
-   credentials pass through it.  Credential confidentiality
-   collapses the moment the proxy is under adversary control.
-   Mitigation is operational: restrict which hosts can
-   register as proxies, audit PROXY_REGISTRATION events,
-   rotate deployment-level keys.
+-  A compromised PS has direct access to whatever credentials
+   pass through it.  Credential confidentiality collapses the
+   moment the PS is under adversary control.  Mitigation is
+   operational: restrict which hosts can register as a PS,
+   audit PROXY_REGISTRATION events, rotate deployment-level
+   keys.
 
--  A deployment that configures a proxy to run AS root while
+-  A deployment that configures a PS to run as root while
    the client is root-squashed has already violated rule 2
-   above; no wire mechanism detects a proxy deliberately
-   mis-implementing credential forwarding.  Deployments SHOULD
-   verify their proxy implementation's credential-forwarding
-   behavior through conformance testing before production use.
+   above; no wire mechanism detects a PS deliberately
+   mis-implementing credential forwarding.  Deployments
+   SHOULD verify their PS implementation's credential-
+   forwarding behavior through conformance testing before
+   production use.
 
 Future work (noted as an Open Question below): RPCSEC_GSSv3
 structured privilege assertion per {{RFC7861}} Section 2.5.2
 is the natural strong-authentication mechanism for
-proxy-forwarded credentials.  This revision does not require
+PS-forwarded credentials.  This revision does not require
 GSSv3 because the broader NFSv4 deployment base does not yet
 support it; deployments that can use GSSv3 SHOULD prefer it
 over AUTH_SYS passthrough for the credential-forwarding
