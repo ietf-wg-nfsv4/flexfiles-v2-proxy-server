@@ -1643,39 +1643,39 @@ NOT assign meaning to them locally.
 
 ## chunk_guard4
 
-The proxy enforces chunk_guard4 CAS on the destination mirror
-set on behalf of clients.  The proxy MAY use the same guard
-values client writes carry through it, or generate fresh guard
-values on the destination side, provided uniqueness on the
-destination is preserved.
+The PS enforces chunk_guard4 CAS on the destination mirror
+set on behalf of clients.  The PS MAY use the same guard
+values client writes carry through it, or generate fresh
+guard values on the destination side, provided uniqueness on
+the destination is preserved.
 
 ## CHUNK_LOCK
 
 If a client holds a chunk lock on a file when a proxy
-operation activates, the lock follows the file: the proxy
-takes ownership of the lock on the destination mirror set, and
-the MDS-escrow semantics (the Reserved cg_client_id Value
+operation activates, the lock follows the file: the PS takes
+ownership of the lock on the destination mirror set, and the
+MDS-escrow semantics (the Reserved cg_client_id Value
 subsection of {{I-D.haynes-nfsv4-flexfiles-v2}}) apply if the
 original holder becomes unreachable during the operation.
 
 ## CB_CHUNK_REPAIR
 
-Per-chunk CB_CHUNK_REPAIR and a CB_PROXY_MOVE or CB_PROXY_REPAIR on
-the same file are mutually exclusive at any given time.  The
-MDS MUST NOT issue CB_CHUNK_REPAIR for a file currently in
-PROXY_ACTIVE; the proxy handles any mid-move repair
-internally.  If the MDS decides a proxied file also needs
-per-chunk repair after the proxy operation completes, it
-issues CB_CHUNK_REPAIR against the post-move layout.
+Per-chunk CB_CHUNK_REPAIR and a CB_PROXY_MOVE or
+CB_PROXY_REPAIR on the same file are mutually exclusive at
+any given time.  The MDS MUST NOT issue CB_CHUNK_REPAIR for a
+file currently in PROXY_ACTIVE; the PS handles any mid-move
+repair internally.  If the MDS decides a proxied file also
+needs per-chunk repair after the proxy operation completes,
+it issues CB_CHUNK_REPAIR against the post-move layout.
 
 ## TRUST_STATEID / REVOKE_STATEID
 
-When the MDS selects a proxy, it issues TRUST_STATEID on the
-proxy for every client layout stateid that will route through
-the proxy during PROXY_ACTIVE.  On proxy retirement the MDS
-issues REVOKE_STATEID on the retired proxy.  This is the same
-mechanism {{I-D.haynes-nfsv4-flexfiles-v2}} defines for any
-DS in a tightly coupled deployment.
+When the MDS selects a PS for a proxy operation, it issues
+TRUST_STATEID on the PS for every client layout stateid that
+will route through the PS during PROXY_ACTIVE.  On PS
+retirement the MDS issues REVOKE_STATEID on the retired PS.
+This is the same mechanism {{I-D.haynes-nfsv4-flexfiles-v2}}
+defines for any DS in a tightly coupled deployment.
 
 # Open Questions {#sec-open-questions}
 
