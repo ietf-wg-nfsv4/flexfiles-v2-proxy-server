@@ -179,7 +179,7 @@ The enumerated items:
 -  Recovery semantics for proxy / MDS / DS failures during a
    proxy operation.
 
-## Out of Scope
+## Out of Scope {#sec-scope-out}
 
 Features below are deliberately deferred.  Most have already
 been discussed during design and were left out either because
@@ -1728,6 +1728,22 @@ defines for any DS in a tightly coupled deployment.
 
 # Open Questions {#sec-open-questions}
 
+The design is substantially complete but still has open
+points that need Working Group input or internal agreement
+before the first submission.  They fall into three rough
+categories: wire-level details that need to be nailed down
+(renewal semantics, the affinity match predicate, richer
+capability advertising), architectural choices that affect
+the mechanism's shape (multiple concurrent proxies per file,
+transitive proxy, capability-scoped EXCHGID flag), and
+policy questions whose answers bind deployment choices more
+than wire behaviour (MDS operation-state persistence,
+RPCSEC_GSSv3 requirement level, DEVICEID_REGISTRATION
+generalization).  Each item below briefly states the
+question and the candidate resolutions; none of them block
+this document's core mechanism but each may reshape a detail
+of it.
+
 1.  **Registration renewal semantics.**  Is renewal a fresh
     PROXY_REGISTRATION with the same prr_registration_id
     (idempotent), or a separate PROXY_RENEW op (lighter-
@@ -1836,6 +1852,15 @@ defines for any DS in a tightly coupled deployment.
     generalized version does.
 
 # Deferred
+
+The items below are explicit protocol extensions identified
+during design that this revision does not specify.  They
+overlap with Out of Scope in {{sec-scope-out}}; where Out of
+Scope frames a deferral in the context of what the mechanism
+does do, this list reads as a standalone punch list of
+candidate follow-on work items, useful to a future revision's
+planner.  A future editorial pass MAY merge this list into
+Out of Scope before submission.
 
 -  Partial-range CB_PROXY_MOVE.
 -  Multi-proxy pipelines for very large files.
