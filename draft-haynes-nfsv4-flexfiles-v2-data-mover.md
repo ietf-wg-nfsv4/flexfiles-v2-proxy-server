@@ -1127,38 +1127,38 @@ terminal outcome.
 
 # Affinity Matching {#sec-affinity}
 
-A proxy MAY populate prr_affinity at registration time with a
+A PS MAY populate prr_affinity at registration time with a
 token that lets the MDS recognize co-residency with a client.
-The canonical use case: a client host is running a local proxy,
-potentially in a container on the same physical machine as the
-client.  Network-level checks alone are not reliable -- the
-proxy may be on a container IP, a separate netns, or behind a
-NAT -- so an explicit token is required.
+The canonical use case: a client host is running a local PS,
+potentially in a container on the same physical machine as
+the client.  Network-level checks alone are not reliable --
+the PS may be on a container IP, a separate netns, or behind
+a NAT -- so an explicit token is required.
 
 The matching algorithm:
 
 1.  When a client issues EXCHANGE_ID to the MDS, the client's
-    co_ownerid MAY contain an affinity token.  Clients that do
-    not wish to participate send a normal co_ownerid.
+    co_ownerid MAY contain an affinity token.  Clients that
+    do not wish to participate send a normal co_ownerid.
 
 2.  When the MDS processes a LAYOUTGET on a file that has an
-    active CB_PROXY_MOVE / CB_PROXY_REPAIR, it iterates over
-    registered proxies and compares each proxy's prr_affinity
+    active CB_PROXY_MOVE or CB_PROXY_REPAIR, it iterates over
+    registered PSes and compares each PS's prr_affinity
     against the requesting client's co_ownerid.  A match
     (equality, substring, or hash equivalence -- the match
     predicate is implementation-defined but MUST be
     deterministic for a given MDS instance) indicates
     co-residency.
 
-3.  The MDS MAY use a match as input to proxy selection.  When
-    multiple proxies are eligible, the MDS MAY prefer the one
+3.  The MDS MAY use a match as input to PS selection.  When
+    multiple PSes are eligible, the MDS MAY prefer the one
     matching the most clients' affinity tokens.
 
-4.  The layout returned names the selected proxy first in
+4.  The layout returned names the selected PS first in
     ffs_data_servers.  For mirrored coding types this makes
-    the local proxy the client's default read target (matching
+    the local PS the client's default read target (matching
     the FFv1 affinity pattern).  For erasure-coded types it
-    makes the local proxy the preferred encode endpoint.
+    makes the local PS the preferred encode endpoint.
 
 Affinity is advisory.  The MDS MUST NOT grant any authority
 based solely on affinity; the normal authentication model
