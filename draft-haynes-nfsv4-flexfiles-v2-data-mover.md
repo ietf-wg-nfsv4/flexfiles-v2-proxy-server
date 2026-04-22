@@ -1405,6 +1405,57 @@ DS in a tightly coupled deployment.
     GSSv3 adoption as a side effect of standardizing this
     mechanism.
 
+10. **DEVICEID_REGISTRATION generalization.**
+    PROXY_REGISTRATION in this document is a proxy-specific
+    capability-advertisement op: a DS opens a session to the
+    MDS and declares that it is proxy-capable, along with
+    codec-set membership, an affinity token, and a lease.
+
+    The same mechanism has broader applicability as a generic
+    DS -> MDS capability advertisement -- a DEVICEID_REGISTRATION
+    op whose payload can carry:
+
+    -  Fault-zone coordinates (building, floor, room, rack,
+       power domain, network domain, cooling domain).  An
+       admin who needs to power down a rack can drive the MDS
+       to recall all layouts referencing DSes in that zone and
+       evacuate files via PROXY_MOVE before the outage.
+
+    -  Storage media type (SSD / HDD / tape / cloud tier), for
+       layout-policy decisions.
+
+    -  Geographic location, for data-locality policy.
+
+    -  Transport security profile (TLS-capable, required
+       mutual-TLS cert fingerprint).
+
+    -  Performance tier labels, for admin-assigned QoS.
+
+    -  Encryption-at-rest and compression-at-rest flags.
+
+    -  Scheduled maintenance windows, so the MDS can
+       preemptively drain a DS before a planned outage.
+
+    Under this framing, PROXY_REGISTRATION is one arm of a
+    generic DEVICEID_REGISTRATION op: the proxy-capability
+    arm.  If the WG prefers the generalization, the op in this
+    document re-homes as a specialization of
+    DEVICEID_REGISTRATION, keeping its wire shape for the
+    proxy arm and adding typed entries for the other
+    capability classes.  The broader op may land in the main
+    draft, in a dedicated draft, or as an extension of this
+    document; settlement of that scoping question is the open
+    item.
+
+    The op direction (DS -> MDS) is the same for both
+    specialized PROXY_REGISTRATION and generalized
+    DEVICEID_REGISTRATION; that direction does not today
+    exist as a session in the main draft's tight-coupling
+    control plane (which runs MDS -> DS).  A resolution of
+    this item also settles whether the data-mover draft
+    introduces a new DS-initiated session or whether the
+    generalized version does.
+
 # Deferred
 
 -  Partial-range PROXY_MOVE.
