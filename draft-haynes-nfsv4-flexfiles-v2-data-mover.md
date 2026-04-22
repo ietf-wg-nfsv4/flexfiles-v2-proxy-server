@@ -452,31 +452,29 @@ deployment attributes).
 
 ## Flow Summary
 
-1.  The PS opens a session to the MDS and issues
-    PROXY_REGISTRATION, declaring its supported codecs and
-    affinity token.  The MDS records the registration and
-    returns a registration id with a granted lease.
+The PS opens a session to the MDS and issues
+PROXY_REGISTRATION, declaring its supported codecs and its
+affinity token; the MDS records the registration and returns
+a registration id with a granted lease.  When the MDS decides
+to move or repair a file, it selects a registered PS whose
+capabilities match the operation and issues CB_PROXY_MOVE or
+CB_PROXY_REPAIR on the back-channel of that PS's session.
+The directive carries the full specification of the work --
+source layout, destination layout, and scheduling parameters.
+The PS drives the operation to completion and reports
+terminal status (and, optionally, periodic progress) by
+issuing PROXY_PROGRESS on the fore-channel of the same
+session.  The MDS MAY at any time poll the PS for current
+status via CB_PROXY_STATUS, or request cancellation via
+CB_PROXY_CANCEL.
 
-2.  When the MDS decides to move or repair a file, it selects
-    a registered PS whose capabilities match the operation and
-    issues CB_PROXY_MOVE or CB_PROXY_REPAIR on the back-channel
-    of the PS's session.  The directive carries the full
-    specification: source layout, destination layout,
-    scheduling parameters.
-
-3.  The PS drives the operation.  It reports terminal status
-    (and optionally periodic progress) by issuing
-    PROXY_PROGRESS on the fore-channel.  The MDS MAY at any
-    time poll the PS via CB_PROXY_STATUS, or request
-    cancellation via CB_PROXY_CANCEL.
-
-4.  Clients interact with the PS through the normal layout
-    path: the layout the MDS hands out during a proxy
-    operation names the PS as a DS entry with
-    FFV2_DS_FLAGS_PROXY set.  Clients route CHUNK I/O to that
-    entry.  Late-arriving clients see the proxy layout from
-    the start; clients that held an older layout are recalled
-    via CB_LAYOUTRECALL and reacquire.
+Clients interact with the PS through the normal layout path.
+During a proxy operation the MDS hands out layouts that name
+the PS as a DS entry with FFV2_DS_FLAGS_PROXY set; clients
+route CHUNK I/O to that entry.  Clients that arrive
+mid-operation see the proxy layout from the start and need
+no additional signalling; clients that held an older (non-
+proxy) layout are recalled via CB_LAYOUTRECALL and reacquire.
 
 ## Message Sequence: Policy-Driven Move
 
@@ -1137,30 +1135,26 @@ the client.  Network-level checks alone are not reliable --
 the PS may be on a container IP, a separate netns, or behind
 a NAT -- so an explicit token is required.
 
-The matching algorithm:
+The matching algorithm has three moving parts.  First,
+clients opt in by embedding an affinity token in the
+co_ownerid they present at EXCHANGE_ID; clients that do not
+wish to participate send a normal co_ownerid with no embedded
+token.  Second, when the MDS processes a LAYOUTGET on a file
+that has an active CB_PROXY_MOVE or CB_PROXY_REPAIR, the MDS
+iterates over registered PSes and compares each PS's
+prr_affinity against the requesting client's co_ownerid; a
+match (equality, substring, or hash equivalence -- the match
+predicate is implementation-defined but MUST be deterministic
+for a given MDS instance) indicates co-residency.  Third,
+when a match exists the MDS MAY use it as input to PS
+selection, preferring, when multiple PSes are eligible, the
+one that matches the most clients' affinity tokens.
 
-1.  When a client issues EXCHANGE_ID to the MDS, the client's
-    co_ownerid MAY contain an affinity token.  Clients that
-    do not wish to participate send a normal co_ownerid.
-
-2.  When the MDS processes a LAYOUTGET on a file that has an
-    active CB_PROXY_MOVE or CB_PROXY_REPAIR, it iterates over
-    registered PSes and compares each PS's prr_affinity
-    against the requesting client's co_ownerid.  A match
-    (equality, substring, or hash equivalence -- the match
-    predicate is implementation-defined but MUST be
-    deterministic for a given MDS instance) indicates
-    co-residency.
-
-3.  The MDS MAY use a match as input to PS selection.  When
-    multiple PSes are eligible, the MDS MAY prefer the one
-    matching the most clients' affinity tokens.
-
-4.  The layout returned names the selected PS first in
-    ffs_data_servers.  For mirrored coding types this makes
-    the local PS the client's default read target (matching
-    the FFv1 affinity pattern).  For erasure-coded types it
-    makes the local PS the preferred encode endpoint.
+The layout returned names the selected PS first in
+ffs_data_servers.  For mirrored coding types this makes the
+local PS the client's default read target (matching the FFv1
+affinity pattern).  For erasure-coded types it makes the
+local PS the preferred encode endpoint.
 
 Affinity is advisory.  The MDS MUST NOT grant any authority
 based solely on affinity; the normal authentication model
@@ -1214,25 +1208,22 @@ not two linked layouts.  Rationale:
 
 # Client Behavior
 
-A client that observes a layout with FFV2_DS_FLAGS_PROXY:
+A client that observes a layout with FFV2_DS_FLAGS_PROXY
+routes all CHUNK I/O to the PROXY-flagged DS entry and does
+not issue I/O directly to any non-PROXY DS in that layout.
+Non-PROXY DSes MAY appear in the layout for informational
+reasons but MUST NOT be addressed by the client.
 
-1.  Routes all CHUNK I/O to the PROXY-flagged DS.
+The client uses its existing layout stateid against the
+PROXY-flagged DS entry; the PS accepts CHUNK ops under that
+stateid because the MDS has registered the stateid via
+TRUST_STATEID on the PS, per the tight-coupling semantics in
+{{I-D.haynes-nfsv4-flexfiles-v2}}.
 
-2.  Does not issue I/O directly to any non-PROXY DS in the
-    layout.  Non-PROXY DSes MAY appear in the layout for
-    informational reasons but MUST NOT be addressed by the
-    client.
-
-3.  Uses its existing layout stateid against the PROXY-flagged
-    DS entry.  The PS accepts CHUNK ops under that stateid
-    (the MDS has registered the stateid via TRUST_STATEID on
-    the PS per the tight-coupling semantics in
-    {{I-D.haynes-nfsv4-flexfiles-v2}}).
-
-4.  Handles PS-side errors (NFS4ERR_DELAY, connection loss,
-    NFS4ERR_BAD_STATEID) exactly as it would any other DS
-    error: LAYOUTERROR to the MDS and expect a new layout or
-    PS reassignment.
+The client handles PS-side errors (NFS4ERR_DELAY, connection
+loss, NFS4ERR_BAD_STATEID) exactly as it would any other DS
+error: report LAYOUTERROR to the MDS and expect either a new
+layout or a PS reassignment in return.
 
 ## When the Layout Is Recalled
 
@@ -1320,25 +1311,23 @@ PROXY-flagged entry, directly to the DSes named there).
 
 ## PS Crash During PROXY_ACTIVE
 
-1.  Client I/O to the PS receives NFS4ERR_DELAY (if the PS is
-    reachable but unhealthy) or connection errors (if
-    unreachable).  Clients report LAYOUTERROR.
+When a PS crashes mid-operation, client I/O routed through
+it receives NFS4ERR_DELAY (if the PS is reachable but
+unhealthy) or connection errors (if unreachable), and the
+affected clients report LAYOUTERROR to the MDS.  The MDS MAY
+select a replacement PS from the registered pool and issue
+CB_PROXY_MOVE or CB_PROXY_REPAIR to the replacement, with the
+source layout updated to reflect current reality --
+destination DSes that the failed PS populated are now part of
+the source set -- and the destination layout unchanged; the
+replacement PS resumes from wherever the failed PS left off.
+The MDS then issues CB_LAYOUTRECALL on the old layout and the
+replacement PS's layout becomes live for new LAYOUTGETs.
 
-2.  The MDS MAY select a replacement PS from the registered
-    pool and issue CB_PROXY_MOVE or CB_PROXY_REPAIR to the
-    replacement, with the source layout updated to reflect
-    current reality (destination DSes that the failed PS
-    populated are now part of the source set) and the
-    destination layout unchanged.  The replacement PS resumes
-    from wherever the failed PS left off.
-
-3.  The MDS issues CB_LAYOUTRECALL on the old layout and the
-    replacement PS's layout becomes live for new LAYOUTGETs.
-
-4.  If the MDS cannot find a replacement within a policy
-    timeout, it MUST cancel the operation: revert to the
-    pre-move source layout, do not issue a destination layout,
-    and mark the destination DSes for cleanup or retry.
+If the MDS cannot find a replacement within a policy timeout,
+it MUST cancel the operation: revert to the pre-move source
+layout, do not issue a destination layout, and mark the
+destination DSes for cleanup or retry.
 
 ## Cascading PS Failure
 
@@ -1367,32 +1356,28 @@ remaining destinations.  Clients are unaffected.
 
 # MDS Crash Recovery
 
-1.  Clients and the PS detect MDS session loss and enter
-    RECLAIM per {{RFC8881}}.
+Clients and the PS detect MDS session loss and enter RECLAIM
+per {{RFC8881}}.  The PS reclaims its PROXY_REGISTRATION on
+reconnection; the MDS MAY persist registrations across
+restart, or the PS MAY re-register from scratch.
+PROXY_REGISTRATION is idempotent as long as the PS preserves
+its prr_registration_id.  The MDS re-advertises proxy layouts
+(with FFV2_DS_FLAGS_PROXY) to reclaiming clients.
 
-2.  The PS reclaims its PROXY_REGISTRATION.  The MDS MAY
-    persist registrations across restart, or the PS MAY
-    re-register; PROXY_REGISTRATION is idempotent as long as
-    prr_registration_id is preserved by the PS.
+If the MDS persisted its view of the active CB_PROXY_MOVE and
+CB_PROXY_REPAIR operations -- which destination DSes are
+populated, which chunks are committed, and similar detail --
+the PS resumes from the last persisted checkpoint.
+Persistence is RECOMMENDED but not required; a non-persistent
+MDS restarts the operation from the beginning.
 
-3.  The MDS re-advertises proxy layouts (with
-    FFV2_DS_FLAGS_PROXY) to reclaiming clients.
-
-4.  If the MDS persisted its view of the active
-    CB_PROXY_MOVE and CB_PROXY_REPAIR operations (which
-    destination DSes are populated, which chunks are
-    committed, etc.), the PS resumes from the last persisted
-    checkpoint.  Persistence is RECOMMENDED but not required;
-    a non-persistent MDS restarts the operation from the
-    beginning.
-
-5.  If the MDS crashed between the PS issuing a terminal
-    PROXY_PROGRESS and the MDS issuing CB_LAYOUTRECALL, the
-    MDS on restart SHOULD re-drive the COMMITTING phase.  The
-    PS MAY re-issue its terminal PROXY_PROGRESS on session
-    re-establishment; the MDS MUST treat a re-issued terminal
-    update as idempotent per the retry rules in
-    {{sec-PROXY_PROGRESS}}.
+A subtle window exists between the PS issuing a terminal
+PROXY_PROGRESS and the MDS issuing CB_LAYOUTRECALL.  If the
+MDS crashed in that window, the MDS on restart SHOULD
+re-drive the COMMITTING phase.  The PS MAY re-issue its
+terminal PROXY_PROGRESS on session re-establishment; the MDS
+MUST treat a re-issued terminal update as idempotent per the
+retry rules in {{sec-PROXY_PROGRESS}}.
 
 # Backward Compatibility
 
