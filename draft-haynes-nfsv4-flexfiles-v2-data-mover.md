@@ -39,12 +39,16 @@ Parallel NFS (pNFS) with the Flexible Files Version 2 layout
 type supports client-side erasure coding and per-chunk repair
 between clients and data servers.  This document extends that
 architecture with a proxy server (PS) role: a registered peer
-of the metadata server that the metadata server directs, via
-callback operations on a dedicated session, to move a file
-from one layout to another or to reconstruct a whole file
-from surviving shards.  The same mechanism provides codec
-translation for clients that cannot participate in a file's
-native erasure code, including NFSv3 clients.
+of the metadata server that polls the metadata server for
+work assignments and carries them out -- moving a file from one
+layout to another, reconstructing a whole file from surviving
+shards, or translating between codecs for clients that cannot
+participate in the file's native encoding (including NFSv3
+clients).  All PS-MDS coordination is fore-channel: the
+metadata server returns work assignments inline in the response
+to a PS-initiated PROXY_PROGRESS poll, and the PS reports
+completion via a fore-channel PROXY_DONE.  No callback
+operations are required for the PS protocol.
 
 --- note_Note_to_Readers
 
@@ -58,6 +62,74 @@ Working Group information can be found at
 [](https://github.com/ietf-wg-nfsv4).
 
 --- middle
+
+# Major revision (2026-04-26)
+
+This draft was substantially restructured on 2026-04-26 based on
+implementation experience.  Key changes from the previous version:
+
+1. **PS protocol is fully fore-channel.**  The previous version
+   defined four callback operations (CB_PROXY_MOVE,
+   CB_PROXY_REPAIR, CB_PROXY_STATUS, CB_PROXY_CANCEL) that the
+   MDS would issue on the PS-MDS session's back-channel.  This
+   has been **walked back** in favor of the MDS returning work
+   assignments inline in the response to a PS-initiated
+   PROXY_PROGRESS poll.  The CB_PROXY_* callback operations are
+   retired; the wire-format slots they occupied are reserved to
+   prevent reuse.
+
+2. **PROXY_DONE and PROXY_CANCEL are new fore-channel ops**
+   (operations 99 and 100, both PS-to-MDS).  They replace the
+   commit/abort signaling that CB_PROXY_* would have carried.
+
+3. **PROXY_PROGRESS response is extended** to carry zero or more
+   work assignments (`proxy_assignment4 ppr_assignments<>`) plus
+   a lease-remaining hint.  The PS polls
+   `PROXY_PROGRESS(want_work=true)`; the MDS replies with any
+   assignments it has queued for this PS.
+
+4. **Two-layout state during migration.**  A new "Layout Shape
+   During a Proxy Operation" treatment specifies that the MDS
+   persists three logical layouts during a migration: L1
+   (active, includes draining mirror D), L2 (candidate,
+   D replaced by target G), and L3 (composite served only to the
+   PS that owns the migration; reads from L1's mirror set,
+   writes via CSM to L1's mirror set plus G).  Atomic commit on
+   PROXY_DONE swaps L1 -> L2.  No new claim type is required;
+   no new stateid type is required; the layout stateid for L3
+   serves as the per-move identifier.
+
+5. **MDS crash recovery uses standard NFSv4 reclaim** for the
+   PS's OPEN, plus a data-mover-specific re-grant for the L3
+   layout (gated on persisted in-flight migration records keyed
+   on `(clientid, file_FH)`).  The PS does NOT re-issue
+   PROXY_REGISTRATION across MDS reboot -- the
+   `nc_is_registered_ps` attribute persists with the client
+   record.
+
+6. **Multi-PS assignment fan-out** is specified normatively:
+   at most one in-flight migration per `(file_FH,
+   target_dstore)`; round-robin PS selection within the
+   registered set; per-PS in-flight cap (default 8).
+
+7. **mTLS auth context** is recognized alongside RPCSEC_GSS as a
+   PROXY_REGISTRATION identity -- an `[[allowed_ps]]` allowlist
+   entry sets EITHER a GSS principal OR a TLS client-cert
+   fingerprint, and the matching identity context on the wire
+   permits registration.  Default is deny-all.
+
+8. **Squat-guard via `prr_registration_id`**: the PS's
+   registration_id distinguishes a renewal (same id, refreshes
+   lease) from a squat attempt (different id while prior lease
+   is still valid, returns NFS4ERR_DELAY).
+
+The full design rationale and implementation feedback driving
+these changes is recorded in `proxy-server-phase6c.md` in the
+companion reffs implementation
+([github.com/loghyr/reffs](https://github.com/loghyr/reffs)).
+Section-level `[[REVISED]]` markers in the prose below identify
+sections whose text is now stale relative to the changes above
+and slated for rewrite in the next published version.
 
 # Introduction
 
@@ -88,11 +160,15 @@ still needs to read and write the file.
 This document specifies a **proxy server (PS)** role to
 address those three cases with a single mechanism: the PS
 opens a session to the metadata server and registers its
-capabilities; the MDS issues callback operations on the
-session's back-channel to direct the PS to move, repair,
-poll, or cancel; the PS reports progress on the fore-channel.
-Clients discover the PS through the normal pNFS layout path
--- a layout that names the PS with a new data-server flag
+capabilities via PROXY_REGISTRATION; the PS then polls the
+MDS using PROXY_PROGRESS for work assignments (move, repair),
+which the MDS returns inline in the poll response; the PS
+carries out each assignment and signals completion via
+PROXY_DONE (or abort via PROXY_CANCEL).  All of the PS-MDS
+coordination is fore-channel; the PS does not require a
+back-channel callback program.  Clients discover that a file
+is being proxied through the normal pNFS layout path -- a
+layout that names the PS with a new data-server flag
 (FFV2_DS_FLAGS_PROXY) -- and route their I/O through it while
 it is active.
 
@@ -142,28 +218,24 @@ the MDS and DS roles defined in
 MDS and, on receipt of a directive from that MDS, performs
 a move, a repair, or an ongoing codec translation on behalf
 of a client.  The PS is opaque to most clients and is
-visible to the MDS through a dedicated session that the PS
-itself opens: the fore-channel (PS to MDS) carries
-PS-initiated ops, and the back-channel (MDS to PS) carries
-the MDS-initiated directives that drive work.
+visible to the MDS through a dedicated NFSv4.1+ session that
+the PS itself opens.  All PS-MDS coordination is fore-channel:
+the PS issues ops to the MDS, and the MDS returns work
+assignments inline in its responses.  No callback channel is
+required for the PS protocol.
 
 The fore-channel surface is deliberately small.
 PROXY_REGISTRATION ({{sec-PROXY_REGISTRATION}}) lets the PS
 declare the codec set it supports, its co-residency
 affinity token, and its lease.  PROXY_PROGRESS
-({{sec-PROXY_PROGRESS}}) lets the PS report interim and
-terminal status of an in-flight operation.  The
-back-channel carries the four directives that together
-cover the entire move, repair, and translation lifecycle:
-CB_PROXY_MOVE ({{sec-CB_PROXY_MOVE}}) directs the PS to
-move a file from a source layout to a destination layout;
-CB_PROXY_REPAIR ({{sec-CB_PROXY_REPAIR}}) specialises that
-directive for the case where the source layout is degraded;
-CB_PROXY_STATUS ({{sec-CB_PROXY_STATUS}}) lets the MDS poll
-current status out-of-band from the PS's own progress
-reports; and CB_PROXY_CANCEL ({{sec-CB_PROXY_CANCEL}}) asks
-the PS to terminate an in-flight operation before
-completion.
+({{sec-PROXY_PROGRESS}}) is the PS's poll-and-report op:
+the PS sends it as a heartbeat (with optional progress
+reports on in-flight migrations) and the MDS replies with
+zero or more new work assignments inline.  PROXY_DONE
+({{sec-PROXY_DONE}}) commits or rolls back a migration when
+the PS finishes it; PROXY_CANCEL ({{sec-PROXY_CANCEL}}) lets
+the PS abort early.  All four ops are fore-channel
+PS-to-MDS.
 
 Around the operation set, the document specifies the layout
 conventions a client sees during a proxy operation and how
@@ -212,18 +284,21 @@ wire and therefore needs no standardisation.  Nothing on
 this list is precluded by the current design; each is a
 reasonable future extension.
 
-**Journaling and partial moves.**  CB_PROXY_MOVE in this
-revision is always whole-file, and is either quiesced
-(clients recalled and a new layout issued after the move
-completes) or dual-written (the PS replicates writes to
-source and destination while active).  Delta-journaling
-mechanisms -- capturing writes against an otherwise-offline
-source, replaying them on completion, or maintaining
-reference integrity across detached clones -- are a future
-extension, as is a partial-range CB_PROXY_MOVE that would
-move a byte range while the rest of the file stays on the
-source.  The quiesced and dual-write modes together cover
-every motivating scenario the design currently has.
+**Journaling and partial moves.**  Move assignments in this
+revision are always whole-file.  The PS performs a CSM-style
+write to all mirrors (source D, destination G, and any other
+mirrors in the file's mirror set) while reading source bytes
+from any mirror in the source set; the two-layout state on
+the MDS keeps client traffic on L1 throughout, with an atomic
+swap to L2 at PROXY_DONE time
+({{sec-two-layout-state}}).  Delta-journaling mechanisms --
+capturing writes against an otherwise-offline source,
+replaying them on completion, or maintaining reference
+integrity across detached clones -- are a future extension,
+as is a partial-range move that would move a byte range while
+the rest of the file stays on the source.  The whole-file
+two-layout commit covers every motivating scenario the design
+currently has.
 
 **Orchestration beyond a single proxy.**  Multi-proxy
 pipelines (staged moves for very large files) and
@@ -236,14 +311,14 @@ does not surface as new wire protocol.
 
 **Server-side copy as an alternative path.**  Integration
 with server-side copy ({{RFC7862}} Section 4) as an
-alternative to CB_PROXY_MOVE for single-file moves within
+alternative to PS-driven moves for single-file moves within
 one namespace is adjacent work.  The two mechanisms are
 complementary (server-side copy is a client-directed
-intra-server operation; CB_PROXY_MOVE is an MDS-directed
+intra-server operation; the PS-driven move is an MDS-directed
 inter-server operation), and their intersection -- for
-example, using server-side copy under the hood of a
-CB_PROXY_MOVE -- is better specified in its own extension
-rather than bolted into this document.
+example, using server-side copy under the hood of a PS move
+assignment -- is better specified in its own extension rather
+than bolted into this document.
 
 **Proxy-internal features that do not surface on the
 wire.**  A proxy MAY implement content-integrity and
@@ -251,10 +326,11 @@ error-correction layers, encryption and compression
 pass-through, log-structured write staging, sector-
 alignment normalisation, and POSIX-loopback shortcuts when
 proxy and client are co-resident.  These are useful
-motivating scenarios for CB_PROXY_MOVE but do not require
-new protocol surface beyond what CB_PROXY_MOVE already
-provides, and so they are left to implementation rather
-than standardised here.
+motivating scenarios for the move/repair vocabulary but do
+not require new protocol surface beyond what the
+PROXY_PROGRESS / PROXY_DONE / PROXY_CANCEL fore-channel set
+already provides, and so they are left to implementation
+rather than standardised here.
 
 # Use Cases
 
@@ -287,11 +363,13 @@ scenarios are described below.
 
 An administrator rsyncs a file from an external source into the
 cluster as a single-copy file.  Server policy requires the file
-to be mirrored or erasure coded.  The MDS issues CB_PROXY_MOVE to
-a registered proxy whose codec set covers the destination
-layout.  The proxy populates the destination from the source,
-while any client that opens the file during the move sees a
-layout that routes I/O through the proxy.
+to be mirrored or erasure coded.  The MDS queues a MOVE
+assignment for the file; the next PROXY_PROGRESS poll from a
+registered proxy whose codec set covers the destination layout
+returns the assignment in its response.  The proxy populates
+the destination from the source, while any client that opens
+the file during the move sees a layout that routes I/O through
+the proxy.
 
 The source "layout" may not even be a Flex Files layout; it
 could be a non-pNFS NFS mount that the proxy reads as an
@@ -306,35 +384,41 @@ must be erasure coded", "high-access-rate files must have
 additional mirrors") requires transforming a file's layout
 without user visibility.  The transformation is purely a layout
 change; the file contents are unchanged except at the shard
-level.  CB_PROXY_MOVE carries the new layout's geometry and
-coding type; the proxy reshapes the file's shards to match.
-Because the transformation type (encode / decode / transcode)
-is entirely specified by the (source, destination) layout pair,
-the op does not need a separate transformation-class field.
+level.  The MOVE assignment carries the new layout's geometry
+and coding type via the destination dstore identifier in
+`proxy_assignment4`; the proxy reshapes the file's shards to
+match.  Because the transformation type (encode / decode /
+transcode) is entirely specified by the (source, destination)
+dstore pair plus the file's recorded layout type, the
+assignment does not need a separate transformation-class
+field.
 
 ## DS Maintenance / Evacuation
 
 A data server is scheduled for maintenance (hardware
 replacement, software upgrade, decommission).  All files whose
 layouts reference that DS must be evacuated to replacement
-DSes before it is taken offline.  CB_PROXY_MOVE is issued against
-each file, with source layouts pointing at the outgoing DS and
-destination layouts pointing at the replacement.  Evacuation
-can be large-scale (thousands or millions of files); running
-per-client per-chunk repair over every file would be
-prohibitively expensive, but a single registered proxy can
-drive many concurrent CB_PROXY_MOVE operations.
+DSes before it is taken offline.  The MDS queues a MOVE
+assignment per file (source = the outgoing DS, target = a
+replacement); registered proxies pick the assignments up via
+PROXY_PROGRESS polls.  Evacuation can be large-scale (thousands
+or millions of files); running per-client per-chunk repair over
+every file would be prohibitively expensive, but a single
+registered proxy can drive many concurrent migrations subject
+to the per-PS in-flight cap ({{sec-multi-ps-fanout}}).
 
 ## Whole-File Repair
 
 Multiple DSes have failed such that per-chunk repair cannot
 reconstruct the file in place.  The MDS constructs a new layout
-backed by replacement DSes and issues CB_PROXY_REPAIR to a proxy,
-which drives reconstruction from whatever surviving shards
+backed by replacement DSes and queues a REPAIR assignment.  The
+next registered-PS PROXY_PROGRESS poll receives the assignment;
+the proxy drives reconstruction from whatever surviving shards
 remain.  If fewer than k shards survive across the mirror set,
-the operation terminates with NFS4ERR_PAYLOAD_LOST, matching
-the per-chunk repair semantics in the Repair Client Selection
-section of {{I-D.haynes-nfsv4-flexfiles-v2}}.
+the proxy reports terminal status via PROXY_DONE with
+status=NFS4ERR_PAYLOAD_LOST, matching the per-chunk repair
+semantics in the Repair Client Selection section of
+{{I-D.haynes-nfsv4-flexfiles-v2}}.
 
 ## TLS Coverage Transition
 
@@ -498,6 +582,15 @@ there.
 
 ## Session Between MDS and PS {#sec-design-session}
 
+`[[REVISED 2026-04-26 -- the back-channel narrative below is
+stale.  The revised model uses a fore-channel-only NFSv4.1+
+session: the PS opens a normal client session to the MDS, and
+all PS-MDS coordination flows on the fore-channel.  The MDS
+returns work assignments inline in PROXY_PROGRESS responses;
+no callback program is required for the PS protocol.  See
+"Major revision (2026-04-26)" at the front of the draft.  The
+text below describes the deprecated dual-channel model.]]`
+
 The PS opens a session to the MDS.  On that session the PS
 is the session client, so PS-initiated ops
 (PROXY_REGISTRATION and PROXY_PROGRESS) flow as regular ops
@@ -549,6 +642,15 @@ that consolidation is not attempted here.
 
 ## Flow Summary
 
+`[[REVISED 2026-04-26 -- this section narrates the old
+back-channel directive flow (MDS -> CB_PROXY_MOVE -> PS).
+The revised flow is fore-channel poll: PS sends PROXY_PROGRESS
+with want_work=true; MDS replies with one or more
+proxy_assignment4 entries inline; PS picks each up via OPEN +
+LAYOUTGET on the assignment's file_FH; PS does the byte work;
+PS commits via LAYOUTRETURN + PROXY_DONE.  See "Major revision
+(2026-04-26)" and {{sec-new-fore-channel}}.]]`
+
 The PS opens a session to the MDS and issues
 PROXY_REGISTRATION, declaring its supported codecs and its
 affinity token; the MDS records the registration and returns
@@ -574,6 +676,14 @@ no additional signalling; clients that held an older (non-
 proxy) layout are recalled via CB_LAYOUTRECALL and reacquire.
 
 ## Message Sequence: Policy-Driven Move
+
+`[[REVISED 2026-04-26 -- the sequence diagram below shows
+CB_PROXY_MOVE on the back-channel.  Replace mentally with:
+PS sends `PROXY_PROGRESS(want_work=true)`; MDS reply includes
+a MOVE assignment in `ppr_assignments`; PS does normal OPEN +
+LAYOUTGET on the file FH; PS shovels bytes; PS sends
+`SEQUENCE PUTFH LAYOUTRETURN PROXY_DONE(stid, OK)`.  All
+fore-channel.]]`
 
 The simplest flow -- a quiesced whole-file move for a policy
 transition.  Shown as a wire-level message sequence between
@@ -623,6 +733,11 @@ quiesced case they are recalled before the PS work starts.
 
 ## Message Sequence: Whole-File Repair
 
+`[[REVISED 2026-04-26 -- same revision as the Policy-Driven
+Move sequence: REPAIR is a fore-channel assignment kind in
+the PROXY_PROGRESS reply, not a back-channel CB_PROXY_REPAIR
+directive.]]`
+
 Same shape as a move, but the source layout is degraded and
 the MDS issues CB_PROXY_REPAIR.  Terminal outcomes:
 
@@ -635,6 +750,22 @@ the MDS issues CB_PROXY_REPAIR.  Terminal outcomes:
    because there is no valid destination layout to issue.
 
 ## Message Sequence: MDS-Initiated Cancellation
+
+`[[REVISED 2026-04-26 -- MDS-initiated cancellation no longer
+exists as a back-channel directive.  In the revised model the
+MDS's options are:
+
+1. Internal abort: the MDS treats an in-flight migration as
+   PROXY_DONE(FAIL) without notifying the PS; commits L1; the
+   PS's eventual PROXY_DONE returns NFS4ERR_BAD_STATEID
+   (migration record gone) and the PS abandons the work.
+2. Lease expiry: the MDS lets the PS's session expire (no
+   SEQUENCE renewal); all the PS's in-flight migrations
+   automatically commit to L1 via the cross-PS-reassignment
+   path in {{sec-multi-ps-fanout}}.
+
+PS-initiated cancellation uses PROXY_CANCEL
+({{sec-PROXY_CANCEL}}); that one is fore-channel.]]`
 
 ~~~
   PS                                MDS
@@ -661,31 +792,42 @@ the MDS issues CB_PROXY_REPAIR.  Terminal outcomes:
 This document defines two new NFSv4.2 operations that a proxy
 server (PS) issues to the metadata server (MDS) on the
 fore-channel of the PS -> MDS session defined in
-{{sec-design-session}}.  PROXY_REGISTRATION (91) is issued
-once at session setup and on renewal.  PROXY_PROGRESS (92) is
-issued by the PS to report terminal and periodic progress for
-in-flight move or repair operations.  Neither operation is
-sent by pNFS clients.
+{{sec-design-session}}.  PROXY_REGISTRATION (93) is issued
+once at session setup and on renewal.  PROXY_PROGRESS (94) is
+issued by the PS as a heartbeat-with-poll: the PS reports
+periodic and terminal progress for in-flight migrations and
+optionally requests new work; the MDS replies inline with
+zero or more new work assignments.  PROXY_DONE (99) commits
+or rolls back an individual migration when the PS finishes
+it; PROXY_CANCEL (100) lets the PS abort early.  None of
+these operations is sent by pNFS clients.
 
-The MDS-initiated ops -- CB_PROXY_MOVE, CB_PROXY_REPAIR,
-CB_PROXY_STATUS, and CB_PROXY_CANCEL -- are callback ops on
-the back-channel of the same session and are defined in
-{{sec-new-cb-ops}}.
+NFSv4.2 callback operation numbers 17-20 (the prior version
+of this draft used them for CB_PROXY_MOVE, CB_PROXY_REPAIR,
+CB_PROXY_STATUS, and CB_PROXY_CANCEL respectively) are
+**reserved** by this document and MUST NOT be reused.  See
+{{sec-new-cb-ops}} (retained as historical context) and the
+"Major revision (2026-04-26)" front-matter section.
 
 ~~~ xdr
 /// /* New operations for the Data Mover (PS -> MDS) */
 ///
 /// OP_PROXY_REGISTRATION   = 93;
 /// OP_PROXY_PROGRESS       = 94;
+/// OP_PROXY_DONE           = 99;
+/// OP_PROXY_CANCEL         = 100;
 ~~~
 {: #fig-data-mover-opnums title="Data Mover operation numbers"}
 
-Opcodes 91 and 92 are chosen to continue the MDS-to-DS
-control-plane range that {{I-D.haynes-nfsv4-flexfiles-v2}}
-opens at 88 (TRUST_STATEID through BULK_REVOKE_STATEID at
-88-90).  If other in-flight NFSv4.2 extensions collide on
-these values during IANA coordination, the final assignment
-will be reconciled by the consuming RFC editor.
+Opcodes 93 and 94 continue the MDS-to-DS control-plane range
+that {{I-D.haynes-nfsv4-flexfiles-v2}} opens at 88
+(TRUST_STATEID through BULK_REVOKE_STATEID at 88-90).
+Opcodes 99 and 100 were chosen to leave 95-98 reserved by
+this document (the prior revision had assigned them to the
+now-retired CB_PROXY_* set; see {{iana-considerations}}).
+If other in-flight NFSv4.2 extensions collide on these values
+during IANA coordination, the final assignment will be
+reconciled by the consuming RFC editor.
 
 The following amendment blocks extend the nfs_argop4 and
 nfs_resop4 dispatch unions from {{RFC7863}} with the new ops.
@@ -700,6 +842,10 @@ point.
 ///     PROXY_REGISTRATION4args opproxyregistration;
 /// case OP_PROXY_PROGRESS:
 ///     PROXY_PROGRESS4args opproxyprogress;
+/// case OP_PROXY_DONE:
+///     PROXY_DONE4args opproxydone;
+/// case OP_PROXY_CANCEL:
+///     PROXY_CANCEL4args opproxycancel;
 ~~~
 {: #fig-nfs_argop4-amend title="nfs_argop4 amendment block"}
 
@@ -710,6 +856,10 @@ point.
 ///     PROXY_REGISTRATION4res opproxyregistration;
 /// case OP_PROXY_PROGRESS:
 ///     PROXY_PROGRESS4res opproxyprogress;
+/// case OP_PROXY_DONE:
+///     PROXY_DONE4res opproxydone;
+/// case OP_PROXY_CANCEL:
+///     PROXY_CANCEL4res opproxycancel;
 ~~~
 {: #fig-nfs_resop4-amend title="nfs_resop4 amendment block"}
 
@@ -951,12 +1101,85 @@ terminal updates for the same (ppa_registration_id,
 ppa_operation_id) pair as idempotent.  Non-terminal updates
 are fire-and-forget and need not be retried.
 
+`[[REVISED 2026-04-26 -- the PROXY_PROGRESS RESULTS struct is
+extended to carry work assignments inline and a lease-remaining
+hint:
+
+~~~ xdr
+/// enum proxy_op_kind4 {
+///     PROXY_OP_KIND_MOVE      = 1,
+///     PROXY_OP_KIND_REPAIR    = 2
+/// };
+///
+/// struct proxy_assignment4 {
+///     proxy_op_kind4    pa_kind;       /* MOVE, REPAIR, ... */
+///     nfs_fh4           pa_file_fh;
+///     uint64_t          pa_source_dstore_id;
+///     uint64_t          pa_target_dstore_id;
+///     /* additional kind-specific descriptors as needed */
+/// };
+///
+/// struct PROXY_PROGRESS4resok {
+///     uint32_t              ppr_lease_remaining_sec;
+/// /* (existing PROXY_PROGRESS resok fields preserved here) */
+///     proxy_assignment4     ppr_assignments<>;
+/// };
+~~~
+{: #fig-PROXY_PROGRESS-revised title="PROXY_PROGRESS extended results (2026-04-26 revision)"}
+
+A PS that wants new work calls `PROXY_PROGRESS(want_work=true)`
+(a new field added to the args).  The MDS returns zero or more
+assignments in `ppr_assignments`.  Each assignment is a unit of
+work the PS picks up; the PS issues a normal NFSv4 OPEN +
+LAYOUTGET on the file FH to acquire the migration layout, then
+shovels bytes per the kind-specific protocol, and signals
+completion via PROXY_DONE.
+
+If the PS sends `PROXY_PROGRESS(want_work=false)` (heartbeat
+only), the MDS replies with `ppr_assignments` empty.  Only the
+lease-remaining hint is informative in that case.
+
+Polling cadence: lease/2 in steady state, with adaptive backoff
+to lease/1 or 2*lease after K consecutive empty replies; reset
+on any non-empty reply.  The MDS MAY override the cadence via
+the `ppr_lease_remaining_sec` hint.
+
+Multi-PS assignment fan-out: see the new "Multi-PS Assignment
+Fan-out" section below.]]`
+
 Cancellation of an in-flight operation by the MDS is handled
 by CB_PROXY_CANCEL ({{sec-CB_PROXY_CANCEL}}).  Polled status
 queries by the MDS use CB_PROXY_STATUS
 ({{sec-CB_PROXY_STATUS}}).
 
 # New NFSv4.2 Callback Operations {#sec-new-cb-ops}
+
+`[[REVISED 2026-04-26 -- this entire section is RETIRED.  See
+"Major revision (2026-04-26)" at the front of the draft.  All
+four CB_PROXY_* operations defined below have been walked back
+in favor of fore-channel ops that the PS initiates.  The
+specific replacements are:
+
+- CB_PROXY_MOVE (was CB op 17): retired.  The MDS now returns
+  MOVE assignments inline in the PROXY_PROGRESS response (see
+  the revised PROXY_PROGRESS section).  CB op number 17 is
+  reserved.
+- CB_PROXY_REPAIR (was CB op 18): retired.  The MDS now returns
+  REPAIR assignments inline in PROXY_PROGRESS.  CB op number
+  18 is reserved.
+- CB_PROXY_STATUS (was CB op 19): retired.  PROXY_PROGRESS
+  itself IS the status mechanism (PS-initiated heartbeat).
+  CB op number 19 is reserved.
+- CB_PROXY_CANCEL (was CB op 20): retired as a CB op.  Its
+  semantic equivalent is the new fore-channel PROXY_CANCEL
+  (op 100, PS-to-MDS).  CB op number 20 is reserved.
+
+The four CB op numbers (17-20) MUST NOT be reused for any
+future CB operation, to avoid wire-protocol confusion with the
+prior version of this draft.
+
+The text below is preserved as historical context; do not
+implement against it.]]`
 
 This document defines four new NFSv4.2 callback operations
 that the MDS issues to a registered PS on the back-channel of
@@ -1285,6 +1508,204 @@ CB_PROXY_CANCEL and then deliver the original terminal status
 anyway; the MDS MUST treat this as equivalent to the original
 terminal outcome.
 
+# New Fore-Channel Operations (Replacing CB_PROXY_*) {#sec-new-fore-channel}
+
+`[[REVISED 2026-04-26 -- this section adds the fore-channel
+operations that replace the retired CB_PROXY_* set above.]]`
+
+The PS-to-MDS protocol uses two new fore-channel operations
+in addition to the extended PROXY_PROGRESS:
+
+- **PROXY_DONE (op 99)**: PS reports terminal success or failure
+  on a specific in-flight migration.  The MDS uses the
+  ppd_status to atomically commit (success: swap the inode's
+  active layout from L1 to L2) or roll back (failure: keep L1,
+  drop L2/G).
+- **PROXY_CANCEL (op 100)**: PS aborts a work item it was
+  assigned but cannot complete (e.g., source DS becomes
+  unreachable, PS resource exhaustion).  The MDS treats this
+  as PROXY_DONE with a fail-equivalent status: rolls back to
+  L1, drops L2/G, frees the assignment for re-assignment by a
+  later PROXY_PROGRESS poll.
+
+Both operations identify the affected migration by **layout
+stateid**.  The PS acquired this stateid earlier when it issued
+LAYOUTGET against the migration layout (L3) for this file; the
+MDS keys its persisted in-flight migration record on the
+`(clientid, file_FH, layout_stid)` triple.  No new stateid type
+is required.
+
+## Operation 99: PROXY_DONE - Commit or Roll Back a Proxy Operation {#sec-PROXY_DONE}
+
+### ARGUMENTS
+
+~~~ xdr
+/// struct PROXY_DONE4args {
+///     stateid4    pd_layout_stid;  /* identifies the migration */
+///     nfsstat4    pd_status;       /* NFS4_OK = commit; else = roll back */
+/// };
+~~~
+{: #fig-PROXY_DONE-args title="PROXY_DONE arguments"}
+
+### RESULTS
+
+~~~ xdr
+/// struct PROXY_DONE4res {
+///     nfsstat4    pdr_status;      /* MDS's acknowledgment */
+/// };
+~~~
+{: #fig-PROXY_DONE-res title="PROXY_DONE results"}
+
+### DESCRIPTION
+
+PROXY_DONE signals the terminal outcome of a migration the PS
+was assigned via PROXY_PROGRESS.  The PS compounds it after
+the byte-shoveling phase completes (or fails):
+
+```
+SEQUENCE PUTFH(file_FH) LAYOUTRETURN(layout_stid) PROXY_DONE(layout_stid, status)
+```
+
+LAYOUTRETURN runs FIRST per RFC 8881 S18.51, releasing the
+PS's reference to the L3 layout cleanly via the standard
+mechanism.  PROXY_DONE then runs against the still-valid (in
+the MDS's persisted in-flight migration record) layout_stid
+to commit (success) or roll back (failure) the L1->L2 swap.
+PROXY_DONE is purely a migration-record operation; it does not
+touch layout state directly.  The PS MAY issue PROXY_DONE in
+a subsequent compound, but the LAYOUTRETURN-then-PROXY_DONE
+single-compound shape is RECOMMENDED to keep the recovery
+window short.
+
+The MDS validates:
+
+- The session belongs to a registered PS
+  (`nc_is_registered_ps == true`)
+- The layout stateid is one the MDS issued for an in-flight
+  migration owned by this PS's clientid
+- The current FH (set by PUTFH) matches the migration's
+  `file_FH`
+
+If validation succeeds, the MDS atomically:
+
+- For `pd_status == NFS4_OK`: flips the inode's active layout
+  from L1 to L2, drops L1 from the inode's layout records,
+  drops L3 (the PS-only composite), issues CB_LAYOUTRECALL to
+  external clients holding cached L1, defers
+  `REMOVE_MIRROR(D)` until all L1 holders have returned (see
+  the "Layout Shape During a Proxy Operation" section).
+- For `pd_status != NFS4_OK`: keeps L1 active unchanged, drops
+  L2 (the half-filled G instance is internally unlinked),
+  drops L3.  No CB_LAYOUTRECALL needed (external clients never
+  saw L2).
+
+The MDS sets `pdr_status` to NFS4_OK on success.  Errors:
+
+- NFS4ERR_PERM: session is not a registered PS
+- NFS4ERR_BAD_STATEID: pd_layout_stid does not match an
+  in-flight migration record on this PS's clientid
+- NFS4ERR_INVAL: current FH does not match the migration's file
+
+Atomicity is critical: external client traffic must transition
+cleanly from L1 to L2 across this op; either the swap commits
+fully or it does not commit at all.
+
+## Operation 100: PROXY_CANCEL - Abort a Proxy Operation {#sec-PROXY_CANCEL}
+
+### ARGUMENTS
+
+~~~ xdr
+/// struct PROXY_CANCEL4args {
+///     stateid4    pc_layout_stid;  /* identifies the migration */
+/// };
+~~~
+{: #fig-PROXY_CANCEL-args title="PROXY_CANCEL arguments"}
+
+### RESULTS
+
+~~~ xdr
+/// struct PROXY_CANCEL4res {
+///     nfsstat4    pcr_status;
+/// };
+~~~
+{: #fig-PROXY_CANCEL-res title="PROXY_CANCEL results"}
+
+### DESCRIPTION
+
+PROXY_CANCEL is shorthand for `PROXY_DONE(layout_stid,
+status=NFS4ERR_DELAY)`.  The PS uses it when it knows it cannot
+complete the assignment (e.g., the PS is being shut down
+gracefully) and wants to release the work item back to the MDS
+for reassignment without computing a more specific failure
+status.
+
+Compound shape:
+
+```
+SEQUENCE PUTFH(file_FH) LAYOUTRETURN(layout_stid) PROXY_CANCEL(layout_stid)
+```
+
+LAYOUTRETURN runs first (standard RFC 8881 S18.51 release of
+the L3 layout); PROXY_CANCEL then operates on the persisted
+in-flight migration record only.  Validation rules and side
+effects mirror PROXY_DONE with status != NFS4_OK.
+
+# Multi-PS Assignment Fan-out {#sec-multi-ps-fanout}
+
+`[[REVISED 2026-04-26 -- new normative section.]]`
+
+When multiple PSes are registered against the same MDS, the
+MDS coordinates assignment fan-out per the following rules:
+
+1. **At most one in-flight migration per `(file_FH,
+   target_dstore)` pair at any time.**  This is a HARD
+   invariant.  The MDS keys its in-flight migrations registry
+   on this pair and MUST NOT assign a migration whose key
+   matches a still-in-flight entry.
+
+2. **PS selection: round-robin within the registered set.**
+   The MDS maintains an ordered list of currently-registered
+   PSes (insertion order).  For each new assignment, walk the
+   list starting after the last PS assigned; pick the first PS
+   whose in-flight migration count is below a per-PS cap
+   (default 8, configurable).  If no PS qualifies, the
+   assignment stays in the queue; the next PS poll re-tries
+   the walk.
+
+3. **No PS affinity.**  The MDS does not implement
+   "this file always goes to this PS"; round-robin is the
+   default.  An implementation MAY add affinity (e.g., by
+   client-IP locality) without breaking conformance.
+
+4. **Cross-PS reassignment on lease expiry.**  If a PS holding
+   in-flight migrations loses its session (lease expiry, squat
+   from a competing PS), the MDS:
+
+   - Internally treats the abandoned migrations as
+     PROXY_DONE(FAIL): commits L1, drops L2/G half-fills.
+   - Re-queues each abandoned migration as a fresh assignment.
+   - On reassignment, the per-`(file_FH, target_dstore)`
+     invariant catches any duplicate (the new PS picks a fresh
+     target if the old target was contaminated; the autopilot
+     decides).
+
+5. **PS Identity continuity across reconnects.**  A PS that
+   reconnects with the same `client_owner4` (recovers the same
+   clientid via EXCHANGE_ID) retains ownership of its
+   in-flight migrations.  No new assignment necessary; the PS
+   reclaims its layouts via the recovery path in {{sec-mds-recovery}}.
+
+The per-PS in-flight cap exists to prevent one PS monopolising
+the queue while others sit idle.  It also bounds the
+PROXY_PROGRESS reply size for the assignment-fanout amplification
+case (e.g., MDS has thousands of files to migrate; without a
+cap, the first PS poll receives all of them).
+
+Implementations SHOULD include a TSan-style invariant test that
+confirms, under concurrent PROXY_PROGRESS polls from N PSes,
+the MDS never assigns two records with the same `(file_FH,
+target_dstore)` key.
+
 # Affinity Matching {#sec-affinity}
 
 A PS MAY populate prr_affinity at registration time with a
@@ -1380,6 +1801,105 @@ source layout plus a destination layout linked by a
 redirector record -- was considered and rejected on those
 three grounds.
 
+## Two-Layout State on the MDS Side {#sec-two-layout-state}
+
+`[[REVISED 2026-04-26 -- new normative subsection.  This
+specifies the MDS's internal layout state during a migration.
+External clients see only the active layout (L1 before the
+PROXY_DONE swap, L2 after); the PS sees a composite (L3) for
+the duration of the migration.]]`
+
+For each file F whose mirror on a draining dstore D is being
+migrated, the MDS persists three logical layout records:
+
+- **L1** -- the **active** layout for external clients.  Mirror
+  set includes D unchanged.  All external traffic (existing
+  cached layouts, fresh LAYOUTGETs) sees L1.
+- **L2** -- the **candidate** post-migration layout.  Mirror set
+  has D replaced by the target G.  Not visible to external
+  clients during the migration window.
+- **L3** -- the **composite** layout served only to the
+  registered PS that owns the migration.  Two mirror entries:
+  - `M1` (read source): the current L1 mirror set.  PS reads
+    source bytes from any mirror in M1.
+  - `M2` (write target): L1's mirror set PLUS G.  PS writes via
+    CSM to every mirror in M2.
+
+The presence of D in M2 (alongside G) is intentional and
+load-bearing: PS-issued CSM writes land on D (keeping D in sync
+with concurrent external client writes, which also CSM to D
+via L1) and on G (filling the destination as the PS catches up).
+Both D and G converge to the same byte image.
+
+### Pinned definitions
+
+- L1.mirrors = the file's pre-migration mirror set, includes D
+- L2.mirrors = (L1.mirrors \ {D}) ∪ {G}
+- L3.M1 = L1.mirrors  (PS's read-source set)
+- L3.M2 = L1.mirrors ∪ {G}  (PS's CSM write-target set)
+
+### Atomic commit on PROXY_DONE
+
+When the PS issues `PROXY_DONE(layout_stid, status=NFS4_OK)`,
+the MDS atomically (in one persisted transaction):
+
+1. Flips the active layout to L2 (D dropped, G promoted)
+2. Drops L1 from the inode's layout records
+3. Drops L3 (PS no longer needs the migration view)
+4. Issues CB_LAYOUTRECALL to external clients holding cached L1
+5. Defers `REMOVE_MIRROR(D)` until all L1 holders return
+
+When PROXY_DONE indicates failure (or PROXY_CANCEL is issued):
+
+1. Keeps L1 active, unchanged
+2. Drops L2; the half-filled G instance is internally unlinked
+3. Drops L3
+4. No CB_LAYOUTRECALL needed (external clients never saw L2)
+
+### Late writes during the swap window
+
+The deferred REMOVE_MIRROR(D) (step 5 of the success path)
+matters because clients with cached L1 layouts may have writes
+in flight that land on D after the swap.  Without the deferral,
+late writes would arrive at a destroyed D instance and the
+client's CSM would see NFS3ERR_STALE.
+
+Late writes that arrive at D between the swap and the deferred
+REMOVE are harmless: the bytes land on D's instance which is
+about to be unlinked; the bytes are dropped with the unlink.
+The client sees the write succeed (CSM to D succeeded) and the
+data is present on the surviving mirrors {E, G}.  No data loss
+or client-visible error.
+
+Late writes that arrive after D's instance has been unlinked
+(rare: client held L1 cache past CB_LAYOUTRECALL) return
+NFS3ERR_STALE on the CSM to D.  The client retries CSM with its
+cached layout; on next LAYOUTGET it gets L2 and writes only
+to {E, G} thereafter.  This is a recoverable transient error,
+not data loss.
+
+### No new claim type or stateid type
+
+The PS uses normal `OPEN(CLAIM_NULL)` to open the file.  The MDS
+recognises the registered-PS session
+(`nc_is_registered_ps == true`) and serves the L3 composite
+layout instead of a normal L1 RW grant.
+
+The layout stateid the MDS issues for L3 IS the per-move
+identifier.  The MDS keys its persisted in-flight migration
+record on the layout stateid.  No new stateid type is required
+for the data-mover protocol.
+
+### Drain interaction
+
+The DRAINING state on dstore D is observable to external
+clients only through the absence of new instance allocations on
+D (via the runway-pop filter).  Existing L1 layouts including D
+remain valid; new L1 layouts continue to include D in both READ
+and RW iomode; concurrent CSM writes continue to hit D.  The
+two-layout commit is what gives migration its atomicity, not
+write-side filtering.
+
 # Client Behavior
 
 A client that observes a layout with FFV2_DS_FLAGS_PROXY
@@ -1417,6 +1937,17 @@ go through the replacement PS (or, if the new layout has no
 PROXY-flagged entry, directly to the DSes named there).
 
 # State Machine
+
+`[[REVISED 2026-04-26 -- the state machine below references
+CB_PROXY_MOVE / REPAIR / CANCEL as transitions.  Replace
+mentally with: assignment delivered via PROXY_PROGRESS reply
+takes the PS state from REGISTERED to ASSIGNED; PS's OPEN +
+LAYOUTGET takes it to PROXY_ACTIVE; LAYOUTRETURN + PROXY_DONE
+takes it to either COMMITTING (success path, blocking on
+external clients' L1 LAYOUTRETURNs before final
+REMOVE_MIRROR(D)) or ABORTED (failure path, immediate L1
+restoration).  The state names stay; the transition triggers
+move from CB_* to fore-channel ops.]]`
 
 A file's participation in a proxy operation passes through
 four states: READY (no operation in flight), PROXY_ACTIVE
@@ -1547,32 +2078,117 @@ the MDS, which MAY substitute a spare or mark the destination
 FFV2_DS_FLAGS_REPAIR.  The PS continues pushing to the
 remaining destinations.  Clients are unaffected.
 
-# MDS Crash Recovery
+# MDS Crash Recovery {#sec-mds-recovery}
+
+`[[REVISED 2026-04-26 -- this section is rewritten to specify
+the recovery story for the fore-channel architecture (without
+CB_PROXY_*) and the two-layout migration state.]]`
 
 Clients and the PS detect MDS session loss and enter RECLAIM
-per {{RFC8881}}.  The PS reclaims its PROXY_REGISTRATION on
-reconnection; the MDS MAY persist registrations across
-restart, or the PS MAY re-register from scratch.
-PROXY_REGISTRATION is idempotent as long as the PS preserves
-its prr_registration_id.  The MDS re-advertises proxy layouts
-(with FFV2_DS_FLAGS_PROXY) to reclaiming clients.
+per {{RFC8881}} S8.4 / S10.2.1.  The MDS persists three
+independent things across restart:
 
-If the MDS persisted its view of the active CB_PROXY_MOVE and
-CB_PROXY_REPAIR operations -- which destination DSes are
-populated, which chunks are committed, and similar detail --
-the PS resumes from the last persisted checkpoint.
-Persistence is RECOMMENDED but not required; a non-persistent
-MDS restarts the operation from the beginning.
+1. **Client identity** for every NFSv4 client, including the PS.
+   This is the standard NFSv4 client-state persistence: the PS's
+   `client_owner4` and assigned `clientid4` survive MDS reboot.
+2. **The `nc_is_registered_ps` attribute** on the PS's persisted
+   client record.  After reboot the MDS knows the PS was
+   previously registered without re-issuing PROXY_REGISTRATION.
+3. **Per-file in-flight migration records**:
+   `{file_FH, source_dstore, target_dstore, owning_PS_clientid,
+   started_at}`.  Lives alongside (1) and (2).  Keyed on
+   `clientid` (stable across PS-process restarts that preserve
+   `client_owner4`), NOT on the layout stateid (which is
+   volatile per-boot).
 
-A subtle window exists between the PS issuing a terminal
-PROXY_PROGRESS and the MDS issuing CB_LAYOUTRECALL.  If the
-MDS crashed in that window, the MDS on restart SHOULD
-re-drive the COMMITTING phase.  The PS MAY re-issue its
-terminal PROXY_PROGRESS on session re-establishment; the MDS
-MUST treat a re-issued terminal update as idempotent per the
-retry rules in {{sec-PROXY_PROGRESS}}.
+## PS Recovery Sequence
+
+After detecting session loss, the PS:
+
+1. **Re-establishes the session** with EXCHANGE_ID using its
+   prior `client_owner4` (recovers the same `clientid4`),
+   followed by CREATE_SESSION.
+2. **Issues RECLAIM_COMPLETE** to enter the reclaim phase.
+   PROXY_REGISTRATION is NOT re-issued -- the persisted
+   `nc_is_registered_ps` flag is sufficient.
+3. **Per-file recovery** for each in-flight migration the PS
+   was working on uses the standard NFSv4 reclaim path with one
+   PS-side persistence requirement:
+   - **PS implementations MUST persist each in-flight migration's
+     layout stateid in PS-local stable storage** when the MDS
+     grants the L3 layout.  Lives in PS-side state (e.g., a small
+     sidecar file or DB table keyed by file FH).  This is the
+     only PS-side persistence the data mover requires beyond
+     what a normal NFSv4 client persists; without it the PS
+     cannot reclaim its layouts after a PS-process restart and
+     the migration is abandoned.
+   - `OPEN_RECLAIM(CLAIM_PREVIOUS, file_FH)` per RFC 8881
+     S9.11.1.  The MDS validates that the prior `clientid4`
+     had an OPEN on this file (which it did -- the OPEN was
+     created when the PS picked up the assignment from a
+     PROXY_PROGRESS reply).  MDS re-grants the OPEN.
+   - `LAYOUTGET(reclaim=true)` per RFC 8881 S18.43.3, supplying
+     the previously-persisted layout stateid as the reclaim key.
+     The MDS validates that:
+     - The session's client has `nc_is_registered_ps == true`
+     - A persisted in-flight migration record exists for this
+       `(clientid, file_FH, layout_stateid)` triple
+     - The reclaim falls within the server grace window
+     and re-grants the L3 composite layout with a fresh stateid
+     (the stateid the PS supplied is consumed; a new one is
+     issued for the resumed migration session, which the PS
+     MUST persist again per the rule above).
+
+   This is the standard RFC 8881 layout reclaim path; no new
+   claim type, no side-channel grant signal.  The
+   data-mover-specific contribution is the `nc_is_registered_ps`
+   session attribute and the persisted in-flight migration
+   record on the MDS side.
+
+4. **Continue the migration** from wherever it left off.  Bytes
+   already on G are preserved (the DS holds them); the PS
+   reads the remaining source bytes from D, writes them to G.
+5. **Eventually issues PROXY_DONE** with success or failure;
+   the L1->L2 commit (or rollback) completes.
+
+## PS Identity Continuity
+
+A PS implementation SHOULD persist its `client_owner4` to
+survive PS-process restart so that post-restart EXCHANGE_ID
+recovers the same clientid and the persisted in-flight
+migration records remain valid.
+
+If the PS's `client_owner4` rotates (e.g., because PS process
+state was lost), the new EXCHANGE_ID gets a fresh `clientid4`.
+The PS's `prr_registration_id` (if matching the prior
+registration) identifies it as the "same operator-meaningful PS
+instance" via the squat-guard, but the in-flight migration
+records keyed on the OLD clientid cannot be claimed by the
+NEW clientid.  Those moves get re-assigned fresh by the
+autopilot via the next PROXY_PROGRESS poll.
+
+## Lost Migration Records
+
+If the persisted migration record cannot be matched (e.g., MDS
+state corruption), the per-file reclaim returns
+`NFS4ERR_NO_GRACE` or `NFS4ERR_RECLAIM_BAD`.  The PS reports
+the move as failed via `PROXY_DONE(layout_stid, FAIL)`; the
+autopilot retries on a fresh PROXY_PROGRESS poll with a new
+target dstore (or the same target if it is still the best
+choice).
 
 # Backward Compatibility
+
+`[[REVISED 2026-04-26 -- this section addresses the
+client/DS compatibility story (preserved as written below).
+For implementations of THIS draft that pre-built against the
+prior CB_PROXY_* shape, see "Major revision (2026-04-26)" at
+the front of the draft.  Pre-built CB_PROXY_* implementations
+SHOULD treat CB op numbers 17-20 as defunct (return
+NFS4ERR_NOTSUPP if received), MUST migrate driving logic to
+the PROXY_PROGRESS poll path, and MUST replace any
+CB_PROXY_CANCEL receive logic with PROXY_CANCEL send logic
+on the fore-channel.]]`
 
 ## Clients
 
@@ -1919,12 +2535,10 @@ within a bounded time.
 
 This document does not require any IANA action.
 
-The two new NFSv4.2 operations defined in {{sec-new-ops}}
-(OP_PROXY_REGISTRATION = 93, OP_PROXY_PROGRESS = 94) and the
-four new NFSv4.2 callback operations defined in
-{{sec-new-cb-ops}} (OP_CB_PROXY_MOVE = 17,
-OP_CB_PROXY_REPAIR = 18, OP_CB_PROXY_STATUS = 19,
-OP_CB_PROXY_CANCEL = 20) follow the convention that NFSv4.2
+The fore-channel NFSv4.2 operations defined in {{sec-new-ops}}
+and {{sec-new-fore-channel}} -- OP_PROXY_REGISTRATION (93),
+OP_PROXY_PROGRESS (94), OP_PROXY_DONE (99), and
+OP_PROXY_CANCEL (100) -- follow the convention that NFSv4.2
 operation numbers are governed by the publishing document and
 do not require a separate IANA registry entry.  The same
 convention applies to the new flag bit FFV2_DS_FLAGS_PROXY,
@@ -1933,6 +2547,16 @@ defined by {{I-D.haynes-nfsv4-flexfiles-v2}}; that document
 explicitly records its flag-word bitmaps as not
 IANA-registered, and any future bit allocations are made by a
 document that updates or obsoletes it.
+
+NFSv4.2 callback operation numbers 17, 18, 19, and 20 (which
+the prior version of this document had assigned to
+OP_CB_PROXY_MOVE, OP_CB_PROXY_REPAIR, OP_CB_PROXY_STATUS, and
+OP_CB_PROXY_CANCEL respectively) are **reserved** by this
+document and MUST NOT be reused for any future callback
+operation.  The reservation prevents wire-protocol confusion
+with implementations of the prior version of this draft.  See
+"Major revision (2026-04-26)" for the design context behind
+the retirement.
 
 The CPM_FLAG_DUAL_WRITE bit in cpma_flags (defined in
 {{sec-CB_PROXY_MOVE}}) is a bit in a bitmap this document
