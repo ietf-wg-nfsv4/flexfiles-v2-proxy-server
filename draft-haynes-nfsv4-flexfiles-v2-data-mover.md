@@ -1111,6 +1111,7 @@ through silence is insufficient.
 ///
 /// struct proxy_assignment4 {
 ///     proxy_op_kind4    pa_kind;
+///     proxy_stateid4    pa_stateid;
 ///     nfs_fh4           pa_file_fh;
 ///     uint64_t          pa_source_dstore_id;
 ///     uint64_t          pa_target_dstore_id;
@@ -1160,27 +1161,35 @@ the migration moves data between
 kind-specific opaque descriptor (`pa_descriptor<>`) for future
 extensions (for example, a precomputed source-layout
 descriptor so the PS can dial source DSes without a second
-LAYOUTGET).
+LAYOUTGET).  The `pa_stateid` field carries the
+`proxy_stateid4` ({{sec-proxy-stateid}}) the MDS has minted
+for this migration; the PS uses it as the handle in the
+eventual PROXY_DONE / PROXY_CANCEL.
 
 The `pa_kind` discriminates the work type:
 
 - `PROXY_OP_MOVE`: drain or migrate the file's data between
-  the named dstores.
+  the named dstores.  `pa_stateid` is the proxy_stateid the
+  PS will reference in PROXY_DONE / PROXY_CANCEL.
 - `PROXY_OP_REPAIR`: reconstruct a missing or corrupt mirror
   on `pa_target_dstore_id` from the surviving mirrors.
+  `pa_stateid` is the proxy_stateid the PS will reference in
+  PROXY_DONE / PROXY_CANCEL.
 - `PROXY_OP_CANCEL_PRIOR`: the MDS rescinds an assignment it
   delivered in a prior PROXY_PROGRESS reply, before the PS
-  acknowledged it via OPEN+LAYOUTGET.  The PS MUST drop any
-  in-progress work for the matching `(pa_file_fh,
-  pa_target_dstore_id)` and MUST NOT issue PROXY_DONE /
-  PROXY_CANCEL for it (the MDS has already cleaned up the
-  in-flight migration record on its side).
+  acknowledged it via OPEN+LAYOUTGET.  `pa_stateid` is the
+  proxy_stateid of the assignment being rescinded; the PS
+  MUST drop any in-progress work tagged with this
+  proxy_stateid and MUST NOT issue PROXY_DONE / PROXY_CANCEL
+  for it (the MDS has already cleaned up the in-flight
+  migration record on its side and retired the proxy_stateid).
 
 For each MOVE / REPAIR assignment, the PS picks the work up
 by issuing a normal NFSv4 OPEN+LAYOUTGET against `pa_file_fh`
 (the L3 composite layout), shovels bytes per the kind-specific
-protocol, and reports terminal status via PROXY_DONE
-({{sec-PROXY_DONE}}) or PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
+protocol, and reports terminal status via
+PROXY_DONE(pa_stateid, ...) ({{sec-PROXY_DONE}}) or
+PROXY_CANCEL(pa_stateid) ({{sec-PROXY_CANCEL}}).
 
 The `ppr_lease_remaining_sec` field is the MDS's
 acknowledgment of this PROXY_PROGRESS as a registration lease
@@ -1233,8 +1242,8 @@ is required.
 
 ~~~ xdr
 /// struct PROXY_DONE4args {
-///     stateid4    pd_layout_stid;  /* identifies the migration */
-///     nfsstat4    pd_status;       /* NFS4_OK = commit; else = roll back */
+///     proxy_stateid4  pd_stateid;
+///     nfsstat4        pd_status;
 /// };
 ~~~
 {: #fig-PROXY_DONE-args title="PROXY_DONE arguments"}
@@ -1243,7 +1252,7 @@ is required.
 
 ~~~ xdr
 /// struct PROXY_DONE4res {
-///     nfsstat4    pdr_status;      /* MDS's acknowledgment */
+///     nfsstat4    pdr_status;
 /// };
 ~~~
 {: #fig-PROXY_DONE-res title="PROXY_DONE results"}
@@ -1251,56 +1260,88 @@ is required.
 ### DESCRIPTION
 
 PROXY_DONE signals the terminal outcome of a migration the PS
-was assigned via PROXY_PROGRESS.  The PS compounds it after
-the byte-shoveling phase completes (or fails):
+was assigned via PROXY_PROGRESS.  `pd_stateid` is the
+proxy_stateid the MDS minted when it delivered the
+corresponding `proxy_assignment4`
+({{sec-proxy-stateid}}).  `pd_status == NFS4_OK` directs the
+MDS to commit the migration (swap the file's active layout
+from the pre-migration shape L1 to the post-migration shape
+L2); any other value directs the MDS to roll back (keep L1,
+discard L2 and the PS-only composite L3).
+
+The PS compounds PROXY_DONE after the byte-shoveling phase
+completes (or fails):
 
 ```
-SEQUENCE PUTFH(file_FH) LAYOUTRETURN(layout_stid) PROXY_DONE(layout_stid, status)
+SEQUENCE PUTFH(file_FH) LAYOUTRETURN(L3_stateid) PROXY_DONE(pd_stateid, status)
 ```
 
-LAYOUTRETURN runs FIRST per RFC 8881 S18.51, releasing the
+LAYOUTRETURN runs FIRST per {{RFC8881}} S18.51, releasing the
 PS's reference to the L3 layout cleanly via the standard
-mechanism.  PROXY_DONE then runs against the still-valid (in
-the MDS's persisted in-flight migration record) layout_stid
-to commit (success) or roll back (failure) the L1->L2 swap.
-PROXY_DONE is purely a migration-record operation; it does not
-touch layout state directly.  The PS MAY issue PROXY_DONE in
-a subsequent compound, but the LAYOUTRETURN-then-PROXY_DONE
-single-compound shape is RECOMMENDED to keep the recovery
-window short.
+mechanism.  PROXY_DONE then operates on the persisted
+in-flight migration record keyed by the proxy_stateid; the
+record is the single source of truth for migration state, so
+PROXY_DONE remains valid even though L3 has just been
+returned.  The PS MAY issue PROXY_DONE in a subsequent
+compound, but the single-compound shape is RECOMMENDED to
+keep the recovery window short.
 
-The MDS validates:
+#### Authorization
 
-- The session belongs to a registered PS
-  (`nc_is_registered_ps == true`)
-- The layout stateid is one the MDS issued for an in-flight
-  migration owned by this PS's clientid
-- The current FH (set by PUTFH) matches the migration's
-  `file_FH`
+The MDS MUST validate, in this priority order, returning the
+first failure encountered:
 
-If validation succeeds, the MDS atomically:
+1. The calling session belongs to a registered PS (i.e., the
+   session's owning client has `nc_is_registered_ps == true`).
+   Otherwise: `NFS4ERR_PERM`.
+2. `pd_stateid.other` was minted in the current
+   (server_state, boot_seq) tuple.  A proxy_stateid minted in
+   a prior boot returns `NFS4ERR_STALE_STATEID`.
+3. A migration record exists in this boot whose recorded
+   proxy_stateid.other matches `pd_stateid.other`.  Otherwise:
+   `NFS4ERR_BAD_STATEID`.
+4. The migration record's recorded **registered-PS identity**
+   matches the calling session's registered-PS identity.  The
+   identity captured at PROXY_REGISTRATION time -- the
+   `prr_registration_id` if non-empty, or the matched GSS
+   principal / mTLS fingerprint otherwise -- is the
+   authorization principal, **not** the per-EXCHANGE_ID
+   `clientid4`.  This makes PROXY_DONE / PROXY_CANCEL
+   tolerant of PS reconnect: a PS that drops its session and
+   reconnects with a fresh EXCHANGE_ID but the same
+   `prr_registration_id` retains authority over its in-flight
+   migrations.  Mismatch returns `NFS4ERR_PERM`.
+5. The current filehandle (set by the preceding PUTFH) matches
+   the migration record's recorded `file_FH`.  Otherwise:
+   `NFS4ERR_BAD_STATEID`.
+6. `pd_stateid.seqid` matches the most recently issued seqid
+   for this proxy_stateid (per {{RFC8881}} S8.2.4 stateid
+   sequence semantics).  Otherwise: `NFS4ERR_OLD_STATEID`.
 
-- For `pd_status == NFS4_OK`: flips the inode's active layout
-  from L1 to L2, drops L1 from the inode's layout records,
-  drops L3 (the PS-only composite), issues CB_LAYOUTRECALL to
-  external clients holding cached L1, defers
-  `REMOVE_MIRROR(D)` until all L1 holders have returned (see
-  the "Layout Shape During a Proxy Operation" section).
-- For `pd_status != NFS4_OK`: keeps L1 active unchanged, drops
-  L2 (the half-filled G instance is internally unlinked),
-  drops L3.  No CB_LAYOUTRECALL needed (external clients never
-  saw L2).
+If all validations succeed, the MDS atomically:
 
-The MDS sets `pdr_status` to NFS4_OK on success.  Errors:
+-  For `pd_status == NFS4_OK`: applies the migration's recorded
+   per-instance deltas to the inode's active layout
+   (`i_layout_segments`), removing DRAINING slots, promoting
+   INCOMING slots to STABLE, drops the L3 PS-only composite,
+   issues CB_LAYOUTRECALL on the prior layout to external
+   clients still holding cached L1 references, defers final
+   removal of decommissioned mirrors until all L1 holders
+   return their layouts.  See "Layout Shape During a Proxy
+   Operation" ({{sec-layout-shape}}) for the per-instance
+   delta machinery (informative).
+-  For `pd_status != NFS4_OK`: discards the migration's
+   recorded deltas without touching `i_layout_segments`.
+   No CB_LAYOUTRECALL is needed (external clients never saw
+   the post-image).  The PS owns cleanup of any half-written
+   data it placed on INCOMING DSes.
 
-- NFS4ERR_PERM: session is not a registered PS
-- NFS4ERR_BAD_STATEID: pd_layout_stid does not match an
-  in-flight migration record on this PS's clientid
-- NFS4ERR_INVAL: current FH does not match the migration's file
+In both cases the migration record is unhashed and freed; the
+proxy_stateid is retired.
 
 Atomicity is critical: external client traffic must transition
-cleanly from L1 to L2 across this op; either the swap commits
-fully or it does not commit at all.
+cleanly across this op; either the per-instance deltas commit
+fully or they do not commit at all.
 
 ## Operation 100: PROXY_CANCEL - Abort a Proxy Operation {#sec-PROXY_CANCEL}
 
@@ -1308,7 +1349,7 @@ fully or it does not commit at all.
 
 ~~~ xdr
 /// struct PROXY_CANCEL4args {
-///     stateid4    pc_layout_stid;  /* identifies the migration */
+///     proxy_stateid4  pc_stateid;
 /// };
 ~~~
 {: #fig-PROXY_CANCEL-args title="PROXY_CANCEL arguments"}
@@ -1324,23 +1365,52 @@ fully or it does not commit at all.
 
 ### DESCRIPTION
 
-PROXY_CANCEL is shorthand for `PROXY_DONE(layout_stid,
-status=NFS4ERR_DELAY)`.  The PS uses it when it knows it cannot
-complete the assignment (e.g., the PS is being shut down
-gracefully) and wants to release the work item back to the MDS
-for reassignment without computing a more specific failure
-status.
+PROXY_CANCEL discards an assigned-but-unfinished migration.
+The PS uses it when it knows it cannot complete the
+assignment (the PS is being shut down gracefully, the source
+DS is unreachable, the destination DS rejected the writes,
+etc.) and wants to release the work item back to the MDS
+without computing a specific failure status.
+
+`pc_stateid` is the proxy_stateid the MDS minted when it
+delivered the corresponding `proxy_assignment4`.
 
 Compound shape:
 
 ```
-SEQUENCE PUTFH(file_FH) LAYOUTRETURN(layout_stid) PROXY_CANCEL(layout_stid)
+SEQUENCE PUTFH(file_FH) LAYOUTRETURN(L3_stateid) PROXY_CANCEL(pc_stateid)
 ```
 
-LAYOUTRETURN runs first (standard RFC 8881 S18.51 release of
-the L3 layout); PROXY_CANCEL then operates on the persisted
-in-flight migration record only.  Validation rules and side
-effects mirror PROXY_DONE with status != NFS4_OK.
+LAYOUTRETURN runs first (standard {{RFC8881}} S18.51 release
+of the L3 layout); PROXY_CANCEL then operates on the
+persisted in-flight migration record only.
+
+#### Authorization
+
+The same priority-ordered validation as PROXY_DONE
+({{sec-PROXY_DONE}}) applies, with `pc_stateid` substituted
+for `pd_stateid`.  In particular, the migration record's
+recorded registered-PS identity MUST match the caller's, or
+the MDS returns `NFS4ERR_PERM`; a PS cannot cancel another
+PS's migration.
+
+#### Side effects
+
+If validation succeeds, the MDS discards the migration's
+recorded deltas, unhashes and frees the migration record,
+retires the proxy_stateid, and (informatively) updates its
+operator-facing telemetry to record the cancellation.  No
+CB_LAYOUTRECALL is needed.  Side effects on `i_layout_segments`
+mirror PROXY_DONE with `pd_status != NFS4_OK`.
+
+The distinction between PROXY_DONE(FAIL) and PROXY_CANCEL is
+purely intent / accounting: PROXY_DONE(FAIL) records that the
+PS attempted the migration and ran into a recoverable error;
+PROXY_CANCEL records that the PS abandoned the assignment
+without attempting it (or while attempting, decided not to
+report a specific failure cause).  An MDS implementation MAY
+surface the distinction in operator telemetry but MUST NOT
+make any behavioral distinction on the wire.
 
 # Multi-PS Assignment Fan-out {#sec-multi-ps-fanout}
 
