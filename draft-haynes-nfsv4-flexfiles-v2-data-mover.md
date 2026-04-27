@@ -1640,27 +1640,98 @@ cached layout; on next LAYOUTGET it gets L2 and writes only
 to {E, G} thereafter.  This is a recoverable transient error,
 not data loss.
 
-### No new claim type or stateid type
+### No new claim type
 
 The PS uses normal `OPEN(CLAIM_NULL)` to open the file.  The MDS
 recognises the registered-PS session
 (`nc_is_registered_ps == true`) and serves the L3 composite
 layout instead of a normal L1 RW grant.
 
-The layout stateid the MDS issues for L3 IS the per-move
-identifier.  The MDS keys its persisted in-flight migration
-record on the layout stateid.  No new stateid type is required
-for the data-mover protocol.
+The L3 layout stateid is a normal NFSv4 layout stateid; the
+PS uses it for CHUNK / WRITE / READ I/O against the source and
+target DSes in the standard way.  It is **distinct** from the
+per-migration handle, which is `proxy_stateid4`
+({{sec-proxy-stateid}}); the MDS keys its persisted in-flight
+migration record on the proxy_stateid, not on the layout
+stateid.  Separating the two handles -- one for I/O on a
+specific layout, one for the migration as a whole --
+keeps the migration record's lifetime independent of any
+single LAYOUTGET / LAYOUTRETURN cycle the PS may perform
+during the byte-shoveling phase.
 
 ### Drain interaction
 
 The DRAINING state on dstore D is observable to external
 clients only through the absence of new instance allocations on
-D (via the runway-pop filter).  Existing L1 layouts including D
-remain valid; new L1 layouts continue to include D in both READ
-and RW iomode; concurrent CSM writes continue to hit D.  The
-two-layout commit is what gives migration its atomicity, not
-write-side filtering.
+D (via the runway-pop filter).  Before the in-flight migration
+record becomes visible to the LAYOUTGET path, the MDS issues
+CB_LAYOUTRECALL on every layout outstanding for the file whose
+composition includes D.  Once those layouts have been returned
+(or administratively revoked when a client's CB back-channel
+fails to ack within the recall window), the migration record
+is published and subsequent LAYOUTGETs return the post-image
+view (L2 from external clients' perspective; L3 from the PS's).
+
+This omit-and-replace ordering guarantees that no client write
+hits D after the migration has started.  The alternative --
+keep-and-shadow, in which the layout view continues to include
+D and the PS shadows client writes from D to G as they happen
+-- requires the PS to expose itself as a flex-files data server
+(an `INTERPOSED` instance taking the place of D in the visible
+layout, with the PS funneling writes to both D and G).  This
+shape is defined in the per-instance delta model below
+(informative) but is not exercised by the wire ops in this
+revision.
+
+### Per-instance migration deltas (informative)
+
+The L1/L2/L3 framing above describes one valid implementation
+approach -- whole-layout swap -- that captures the simplest
+case (single mirror replacement under a Client Side Mirroring
+codec).  An MDS implementation that supports more general
+migrations (e.g., a single shard add to an erasure-coded
+file, or a partial mirror-set rotation under FFv2 RS) MAY
+record migration state as **per-instance deltas** on the file's
+existing layout records, rather than as a complete L2/L3 pair.
+
+In this informative model, each migration record carries an
+array of per-instance deltas, each delta describing a
+transformation on one position within one segment of
+`i_layout_segments`.  Four instance states are useful:
+
+-  `STABLE` -- unchanged; client writes go here directly.
+-  `DRAINING` -- a slot being decommissioned; under
+   omit-and-replace, the LAYOUTGET view-build path omits this
+   slot and replaces it with the matching INCOMING.
+-  `INCOMING` -- a new slot the PS is filling; under
+   omit-and-replace, the LAYOUTGET view-build path emits this
+   slot in place of the matching DRAINING.
+-  `INTERPOSED` -- a slot whose visible endpoint is the PS,
+   with the PS internally fanning writes out to one or more
+   target DSes.  Used by keep-and-shadow (forward-compat;
+   not produced by the wire ops in this revision).
+
+The current published layout (`i_layout_segments`) is built
+**through** the deltas: when LAYOUTGET runs while a migration
+is active, the layout-build path consults the migration
+record and emits the during-migration view by applying the
+deltas to the base segments.  `i_layout_segments` itself is
+never mutated until `PROXY_DONE(NFS4_OK)` collapses the
+deltas into the base records permanently.
+
+This per-instance model and the L1/L2/L3 swap model agree on
+the wire-visible behavior in the simplest case (single mirror
+replacement, omit-and-replace).  The wire ops in this draft
+do not require either implementation; an MDS chooses whichever
+matches its layout-record machinery.
+
+The reffs implementation ({{Implementations}}) uses the
+per-instance delta model.  See
+`.claude/design/proxy-server-phase6c-revision.md` in the reffs
+companion repository for the full state machine, the four
+record-builder invariants, the migration record / proxy_stateid
+table lifecycle (`call_rcu` plus `urcu_ref` per the project's
+Rule 6 lifecycle), and the lease-aware reaper.
 
 # Client Behavior
 
