@@ -2362,12 +2362,13 @@ byte-for-byte through a peer PS that shares the same MDS.
 
 The matrix:
 
-| Path           | Layout    | Codec               | Result |
-|----------------|-----------|---------------------|--------|
-| /ffv1-csm      | FF v1     | plain mirror        | PASS   |
-| /ffv1-stripes  | FF v1     | stripe k=6, m=0     | PASS   |
-| /ffv2-csm      | FF v2     | plain mirror, CHUNK | PASS   |
-| /ffv2-rs       | FF v2     | RS(4,2), CHUNK      | PASS   |
+| Path           | Layout    | Codec                    | Result |
+|----------------|-----------|--------------------------|--------|
+| /ffv1-csm      | FF v1     | plain mirror             | PASS   |
+| /ffv1-stripes  | FF v1     | stripe k=6, m=0          | PASS   |
+| /ffv2-csm      | FF v2     | plain mirror, CHUNK      | PASS   |
+| /ffv2-rs       | FF v2     | RS(4,2), CHUNK           | PASS   |
+| /ffv2-mj       | FF v2     | Mojette systematic (4,2) | PASS   |
 
 For each row the client opens
 `<path>/codec_<label>.bin` through the PS-A proxy listener,

@@ -32,14 +32,15 @@ the PS-B-served payload must match exactly.
 
 **Result matrix** (run on editors' infrastructure, current main):
 
-| SB path           | Layout | Codec               | PASS / FAIL |
-|-------------------|--------|---------------------|:-----------:|
-| `/ffv1-csm`       | FF v1  | plain mirror        | **PASS**    |
-| `/ffv1-stripes`   | FF v1  | stripe k=6, m=0     | **PASS**    |
-| `/ffv2-csm`       | FF v2  | plain mirror, CHUNK | **PASS**    |
-| `/ffv2-rs`        | FF v2  | RS(4,2), CHUNK      | **PASS**    |
+| SB path           | Layout | Codec                    | PASS / FAIL |
+|-------------------|--------|--------------------------|:-----------:|
+| `/ffv1-csm`       | FF v1  | plain mirror             | **PASS**    |
+| `/ffv1-stripes`   | FF v1  | stripe k=6, m=0          | **PASS**    |
+| `/ffv2-csm`       | FF v2  | plain mirror, CHUNK      | **PASS**    |
+| `/ffv2-rs`        | FF v2  | RS(4,2), CHUNK           | **PASS**    |
+| `/ffv2-mj`        | FF v2  | Mojette systematic (4,2) | **PASS**    |
 
-**4 / 4 codecs PASS** byte-exact through cross-PS write/read.
+**5 / 5 codecs PASS** byte-exact through cross-PS write/read.
 
 **What this exercises in the proxy-server draft:**
 
