@@ -2,7 +2,7 @@
 
 Work-in-progress companion Internet-Draft to
 [`draft-haynes-nfsv4-flexfiles-v2`](https://github.com/ietf-wg-nfsv4/flexfiles-v2)
-covering the Data Mover mechanism.
+covering the Proxy Server mechanism.
 
 ## Status
 
