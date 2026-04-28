@@ -502,11 +502,15 @@ Data server (DS):
 
 Only one of the three pairs carries new ops in this document.
 The MDS <-> PS pair gains the new PS-to-MDS regular ops for
-registration and progress ({{sec-new-ops}}) and the new
-MDS-to-PS callback ops for move, repair, status, and cancel
-({{sec-new-cb-ops}}).  The Client <-> PS pair gains no new
-ops: clients reach a PS through the normal pNFS data path,
-seeing it as a DS with FFV2_DS_FLAGS_PROXY set in the layout
+registration, progress, and terminal reporting
+({{sec-new-ops}}).  No new callback ops are introduced; the
+MDS pulls work assignments to the PS in the PROXY_PROGRESS
+reply on the fore-channel, and the PS reports completion or
+cancellation back via PROXY_DONE / PROXY_CANCEL on the same
+session, so no callback program is required for this protocol.
+The Client <-> PS pair gains no new ops: clients reach a PS
+through the normal pNFS data path, seeing it as a DS with
+FFV2_DS_FLAGS_PROXY set in the layout
 ({{sec-layout-shape}}).  The MDS <-> DS pair is also
 unchanged; the tight-coupling control session in
 {{I-D.haynes-nfsv4-flexfiles-v2}} carries over as defined
@@ -814,8 +818,8 @@ The MDS guarantees that no two proxy_stateids in the same
 embed the MDS `boot_seq` in the high-order bytes of
 `other[12]` to enable cheap NFS4ERR_STALE_STATEID detection
 across reboots; this is informative implementation guidance,
-not a wire requirement.  The reffs implementation
-({{Implementations}}) uses the layout
+not a wire requirement.  One known implementation uses the
+layout
 `{ uint16_t boot_seq | uint16_t reserved | uint64_t opaque }`
 where the opaque tail is `getrandom(2)` output.  The
 `reserved` field is zero in this revision; implementations
@@ -1657,13 +1661,11 @@ replacement, omit-and-replace).  The wire ops in this draft
 do not require either implementation; an MDS chooses whichever
 matches its layout-record machinery.
 
-The reffs implementation ({{Implementations}}) uses the
-per-instance delta model.  See
-`.claude/design/proxy-server-phase6c-revision.md` in the reffs
-companion repository for the full state machine, the four
-record-builder invariants, the migration record / proxy_stateid
-table lifecycle (`call_rcu` plus `urcu_ref` per the project's
-Rule 6 lifecycle), and the lease-aware reaper.
+The wire ops in this draft do not constrain the choice; the
+per-instance delta model is one known implementation strategy
+that has been used to track the four record-builder invariants
+and a lease-aware reaper for the migration record /
+proxy_stateid tables across the lifecycle described above.
 
 # Client Behavior
 
@@ -2294,9 +2296,9 @@ conformant with this specification.
 Deployments that want local enforcement need a mechanism for
 the PS to acquire the MDS's per-export client-rule list.  This
 document does not standardise such a mechanism; implementation-
-specific options include reffs-style probe-protocol extensions,
-out-of-band admin distribution, or a future revision of this
-specification.  Any such mechanism MUST itself be authenticated
+specific options include a control-plane probe-protocol
+extension, out-of-band admin distribution, or a future revision
+of this specification.  Any such mechanism MUST itself be authenticated
 against the PS allowlist (the rules are sensitive deployment
 policy) and MUST support a refresh path so PSes see rule changes
 within a bounded time.
