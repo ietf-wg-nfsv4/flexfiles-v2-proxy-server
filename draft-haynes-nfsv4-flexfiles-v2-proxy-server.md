@@ -745,7 +745,7 @@ reconciled by the consuming RFC editor.
 The following amendment blocks extend the nfs_argop4 and
 nfs_resop4 dispatch unions from {{RFC7863}} with the new ops.
 A consumer that combines this document's extracted XDR with the
-RFC 7863 XDR applies the amendments at the unions' extension
+{{RFC7863}} XDR applies the amendments at the unions' extension
 point.
 
 ~~~ xdr
@@ -1081,7 +1081,7 @@ fore-channel of its session to the MDS for two purposes:
    `proxy_assignment4` describing one migration or repair the
    MDS wants this PS to drive.
 
-Per RFC 8178 S4.4.3, `ppa_flags` is a reserved-for-future-use
+Per {{RFC8178}} S4.4.3, `ppa_flags` is a reserved-for-future-use
 flag word; the MDS MUST reject any non-zero bit with
 `NFS4ERR_INVAL`.  The slot allows future revisions to add
 PS-side appetite signaling (e.g., "do not give me more
@@ -1891,12 +1891,12 @@ After detecting session loss, the PS:
      what a normal NFSv4 client persists; without it the PS
      cannot reclaim its layouts after a PS-process restart and
      the migration is abandoned.
-   - `OPEN_RECLAIM(CLAIM_PREVIOUS, file_FH)` per RFC 8881
+   - `OPEN_RECLAIM(CLAIM_PREVIOUS, file_FH)` per {{RFC8881}}
      S9.11.1.  The MDS validates that the prior `clientid4`
      had an OPEN on this file (which it did -- the OPEN was
      created when the PS picked up the assignment from a
      PROXY_PROGRESS reply).  MDS re-grants the OPEN.
-   - `LAYOUTGET(reclaim=true)` per RFC 8881 S18.43.3, supplying
+   - `LAYOUTGET(reclaim=true)` per {{RFC8881}} S18.43.3, supplying
      the previously-persisted layout stateid as the reclaim key.
      The MDS validates that:
      - The session's client has `nc_is_registered_ps == true`
@@ -1908,7 +1908,7 @@ After detecting session loss, the PS:
      issued for the resumed migration session, which the PS
      MUST persist again per the rule above).
 
-   This is the standard RFC 8881 layout reclaim path; no new
+   This is the standard {{RFC8881}} layout reclaim path; no new
    claim type, no side-channel grant signal.  The
    data-mover-specific contribution is the `nc_is_registered_ps`
    session attribute and the persisted in-flight migration
