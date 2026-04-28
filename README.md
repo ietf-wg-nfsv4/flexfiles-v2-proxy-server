@@ -1,4 +1,4 @@
-# flexfiles-v2-data-mover
+# flexfiles-v2-proxy-server
 
 Work-in-progress companion Internet-Draft to
 [`draft-haynes-nfsv4-flexfiles-v2`](https://github.com/ietf-wg-nfsv4/flexfiles-v2)
@@ -7,10 +7,10 @@ covering the Data Mover mechanism.
 ## Status
 
 **Pre-submission.** The draft source is
-[`draft-haynes-nfsv4-flexfiles-v2-data-mover.md`](draft-haynes-nfsv4-flexfiles-v2-data-mover.md).
+[`draft-haynes-nfsv4-flexfiles-v2-proxy-server.md`](draft-haynes-nfsv4-flexfiles-v2-proxy-server.md).
 It has not yet been submitted to the datatracker. Ongoing design
 iteration happens in this repository; issues in the flexfiles-v2
-repository's `data-mover` label track the findings being addressed.
+repository's `proxy-server` label track the findings being addressed.
 
 The build uses Martin Thomson's i-d-template: run `make` to produce
 `.txt` and `.html`; `make idnits` to run `idnits` against the rendered
