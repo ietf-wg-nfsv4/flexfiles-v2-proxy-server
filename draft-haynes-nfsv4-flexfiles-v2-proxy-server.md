@@ -104,11 +104,14 @@ layout that names the PS with a new data-server flag
 (FFV2_DS_FLAGS_PROXY) -- and route their I/O through it while
 it is active.
 
-This design codifies a mechanism that is common, but
-implementation-specific, in existing Flex Files v1 deployments.
-Today the lack of a standardized version is the single biggest
-interop gap between pNFS and parallel-filesystem competitors
-that already expose migration primitives.
+Flex Files v1 provides no standardized mechanism for migrating
+a file's layout while the file remains in use.  Without such
+primitives, migration is left to implementation-specific
+machinery and cannot be performed safely across
+implementations.  This design codifies that mechanism, closing
+what is today the single biggest interop gap between pNFS and
+parallel-filesystem competitors that already expose migration
+primitives.
 
 # Requirements Language
 
