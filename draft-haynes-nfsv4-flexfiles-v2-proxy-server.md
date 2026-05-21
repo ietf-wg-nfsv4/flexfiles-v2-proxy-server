@@ -56,7 +56,7 @@ Discussion of this draft takes place on the NFSv4 working group
 mailing list (nfsv4@ietf.org), which is archived at
 [](https://mailarchive.ietf.org/arch/search/?email_list=nfsv4).
 Source code and issues list for this draft can be found at
-[](https://github.com/ietf-wg-nfsv4/flexfiles-v2-data-mover).
+[](https://github.com/ietf-wg-nfsv4/flexfiles-v2-proxy-server).
 
 Working Group information can be found at
 [](https://github.com/ietf-wg-nfsv4).
@@ -723,14 +723,14 @@ the IANA Considerations section ({{iana-considerations}})
 for the rationale and the wire-level reservation record.
 
 ~~~ xdr
-/// /* New operations for the Data Mover (PS -> MDS) */
+/// /* New operations for the proxy server (PS -> MDS) */
 ///
 /// OP_PROXY_REGISTRATION   = 93;
 /// OP_PROXY_PROGRESS       = 94;
 /// OP_PROXY_DONE           = 99;
 /// OP_PROXY_CANCEL         = 100;
 ~~~
-{: #fig-data-mover-opnums title="Data Mover operation numbers"}
+{: #fig-proxy-server-opnums title="Proxy server operation numbers"}
 
 Opcodes 93 and 94 continue the MDS-to-DS control-plane range
 that {{I-D.haynes-nfsv4-flexfiles-v2}} opens at 88
@@ -870,7 +870,7 @@ this check, a PS that learned another PS's proxy_stateid
 could drive its PROXY_DONE / PROXY_CANCEL on a migration it
 does not own.
 
-## Operation 93: PROXY_REGISTRATION - Register as Data Mover {#sec-PROXY_REGISTRATION}
+## Operation 93: PROXY_REGISTRATION - Register as Proxy Server {#sec-PROXY_REGISTRATION}
 
 ### ARGUMENTS
 
@@ -1897,7 +1897,7 @@ After detecting session loss, the PS:
      layout stateid in PS-local stable storage when the MDS
      grants the L3 layout.  Lives in PS-side state (e.g., a small
      sidecar file or DB table keyed by file FH).  This is the
-     only PS-side persistence the data mover requires beyond
+     only PS-side persistence the PS requires beyond
      what a normal NFSv4 client persists; without it the PS
      cannot reclaim its layouts after a PS-process restart and
      the migration is abandoned.
@@ -1920,7 +1920,7 @@ After detecting session loss, the PS:
 
    This is the standard {{RFC8881}} layout reclaim path; no new
    claim type, no side-channel grant signal.  The
-   data-mover-specific contribution is the `nc_is_registered_ps`
+   PS-specific contribution is the `nc_is_registered_ps`
    session attribute and the persisted in-flight migration
    record on the MDS side.
 
@@ -2617,7 +2617,7 @@ of it.
     DEVICEID_REGISTRATION; that direction does not today
     exist as a session in the main draft's tight-coupling
     control plane (which runs MDS -> DS).  A resolution of
-    this item also settles whether the data-mover draft
+    this item also settles whether the proxy-server draft
     introduces a new DS-initiated session or whether the
     generalized version does.
 
@@ -2651,7 +2651,7 @@ Out of Scope before submission.
 # Acknowledgments
 {:numbered="false"}
 
-David Flynn and Trond Myklebust shaped the data-mover
+David Flynn and Trond Myklebust shaped the proxy-server
 architecture, in particular the split between proxy
 registration and MDS-issued directives.
 
