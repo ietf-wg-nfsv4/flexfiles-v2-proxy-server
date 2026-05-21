@@ -74,22 +74,22 @@ mechanism is sufficient for repairs whose scope is a handful of
 chunks in a file that has at least one live client.
 
 Three classes of work are outside the per-chunk repair model.
-The first is **whole-file repair**: the case in which enough
+The first is whole-file repair: the case in which enough
 data servers have failed that per-chunk reconstruction would
 require visiting every chunk, or in which no live client is
-available to drive the repair at all.  The second is **layout
-transitions**: a file must move from one layout geometry to
+available to drive the repair at all.  The second is layout
+transitions: a file must move from one layout geometry to
 another for policy reasons (migrating to a new coding type, or
 re-mirroring), for maintenance reasons (evacuating a data
 server ahead of decommission), or for environmental reasons
 (moving between transport-security profiles or between
-filehandle backends).  The third is **codec translation**: a
+filehandle backends).  The third is codec translation: a
 client that cannot participate in the file's native codec --
 including every NFSv3 client, and any legacy or minimal NFSv4
 client that does not implement the file's encoding type --
 still needs to read and write the file.
 
-This document specifies a **proxy server (PS)** role to
+This document specifies a proxy server (PS) role to
 address those three cases with a single mechanism: the PS
 opens a session to the metadata server and registers its
 capabilities via PROXY_REGISTRATION; the PS then polls the
@@ -144,7 +144,7 @@ credential-forwarding rules a translating proxy must
 follow, and the recovery semantics for the three actor
 failures that matter during an operation (PS, MDS, DS).
 
-The new role is the **proxy server (PS)**, distinct from
+The new role is the proxy server (PS), distinct from
 the MDS and DS roles defined in
 {{I-D.haynes-nfsv4-flexfiles-v2}}.  A PS registers with an
 MDS and, on receipt of a directive from that MDS, performs
@@ -404,7 +404,7 @@ hint, falls back to MDS-terminated I/O, or (this case) is
 routed through a proxy that translates on its behalf.
 
 Unlike the move / repair / evacuation / transition use cases
-above, codec translation is **persistent per client**.  The
+above, codec translation is persistent per client.  The
 file itself is not changing state.  What changes is the layout
 the MDS hands to a codec-ignorant client: that client gets a
 layout with FFV2_DS_FLAGS_PROXY set and a coding_type the
@@ -423,13 +423,13 @@ need translation.
 ### Mechanism
 
 A translating proxy runs two sides that meet internally.  On
-its **client-facing** side it speaks the protocol the
+its client-facing side it speaks the protocol the
 codec-ignorant client can speak: for an NFSv3 {{RFC1813}}
 client that is an NFSv3 server that re-exports the MDS's
 namespace; for a legacy NFSv4.2 client that understands only
 some codecs, it is an NFSv4.2 data-server surface presenting
 FFV2_CODING_MIRRORED (or an equivalent codec the client
-supports).  On its **MDS-facing** side it is an NFSv4.2
+supports).  On its MDS-facing side it is an NFSv4.2
 client to the MDS plus whatever DS protocol the MDS's real
 DSes speak.  The proxy translates each client-facing op into
 the corresponding MDS or DS op, applies the codec
@@ -649,9 +649,9 @@ Same shape as a move, but the assignment in PROXY_PROGRESS
 carries `pa_kind = PROXY_OP_REPAIR` and the source layout is
 degraded.  Terminal outcomes:
 
--  **NFS4_OK** in `pd_status`: the PS reconstructed the file;
+-  `NFS4_OK` in `pd_status`: the PS reconstructed the file;
    the MDS proceeds as in {{fig-seq-policy-move}}.
--  **NFS4ERR_PAYLOAD_LOST** in `pd_status`: fewer than k
+-  `NFS4ERR_PAYLOAD_LOST` in `pd_status`: fewer than k
    shards survived across the mirror set; the MDS marks the
    affected byte ranges lost and rolls back to L1.  No
    CB_LAYOUTRECALL is issued because there is no valid
@@ -717,7 +717,7 @@ these operations is sent by pNFS clients.
 NFSv4.2 callback operation numbers 17-20 (the prior version
 of this draft used them for CB_PROXY_MOVE, CB_PROXY_REPAIR,
 CB_PROXY_STATUS, and CB_PROXY_CANCEL respectively) are
-**reserved** by this document and MUST NOT be reused.  See
+reserved by this document and MUST NOT be reused.  See
 the "Major revision (2026-04-26)" front-matter section and
 the IANA Considerations section ({{iana-considerations}})
 for the rationale and the wire-level reservation record.
@@ -790,9 +790,9 @@ proxy migration.  The wire shape reuses the standard NFSv4
 
 ### Value Space
 
-The proxy_stateid value space is **disjoint** from the open,
+The proxy_stateid value space is disjoint from the open,
 lock, layout, and delegation stateid value spaces defined in
-{{RFC8881}}.  Disjointness is enforced by *context*, not by an
+{{RFC8881}}.  Disjointness is enforced by context, not by an
 in-band tag: only PROXY_PROGRESS, PROXY_DONE, and PROXY_CANCEL
 arguments carry a `proxy_stateid4`.  An implementation MUST
 NOT use an open, lock, layout, or delegation stateid lookup
@@ -859,7 +859,7 @@ NFSv4 stateid seqid semantics in {{RFC8881}} S8.2.4:
 
 ### Authorization
 
-Possession of a proxy_stateid is **not** sufficient to drive
+Possession of a proxy_stateid is not sufficient to drive
 PROXY_DONE or PROXY_CANCEL on the corresponding migration.
 The MDS additionally validates that the calling session's
 registered-PS identity matches the migration record's
@@ -1163,20 +1163,20 @@ PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
 The PS-to-MDS protocol uses two new fore-channel operations
 in addition to the extended PROXY_PROGRESS:
 
-- **PROXY_DONE (op 99)**: PS reports terminal success or failure
+- `PROXY_DONE` (op 99): PS reports terminal success or failure
   on a specific in-flight migration.  The MDS uses the
   ppd_status to atomically commit (success: swap the inode's
   active layout from L1 to L2) or roll back (failure: keep L1,
   drop L2/G).
-- **PROXY_CANCEL (op 100)**: PS aborts a work item it was
+- `PROXY_CANCEL` (op 100): PS aborts a work item it was
   assigned but cannot complete (e.g., source DS becomes
   unreachable, PS resource exhaustion).  The MDS treats this
   as PROXY_DONE with a fail-equivalent status: rolls back to
   L1, drops L2/G, frees the assignment for re-assignment by a
   later PROXY_PROGRESS poll.
 
-Both operations identify the affected migration by **layout
-stateid**.  The PS acquired this stateid earlier when it issued
+Both operations identify the affected migration by layout
+stateid.  The PS acquired this stateid earlier when it issued
 LAYOUTGET against the migration layout (L3) for this file; the
 MDS keys its persisted in-flight migration record on the
 `(clientid, file_FH, layout_stid)` triple.  No new stateid type
@@ -1246,12 +1246,12 @@ first failure encountered:
 3. A migration record exists in this boot whose recorded
    proxy_stateid.other matches `pd_stateid.other`.  Otherwise:
    `NFS4ERR_BAD_STATEID`.
-4. The migration record's recorded **registered-PS identity**
+4. The migration record's recorded registered-PS identity
    matches the calling session's registered-PS identity.  The
    identity captured at PROXY_REGISTRATION time -- the
    `prr_registration_id` if non-empty, or the matched GSS
    principal / mTLS fingerprint otherwise -- is the
-   authorization principal, **not** the per-EXCHANGE_ID
+   authorization principal, not the per-EXCHANGE_ID
    `clientid4`.  This makes PROXY_DONE / PROXY_CANCEL
    tolerant of PS reconnect: a PS that drops its session and
    reconnects with a fresh EXCHANGE_ID but the same
@@ -1467,8 +1467,8 @@ implementer needs to read to know how its code interacts with
 a proxied file.
 
 When a proxy MOVE or REPAIR migration is active for a file,
-the layout the MDS hands out to clients contains a **proxy
-DS entry** at the head of ffs_data_servers (or otherwise
+the layout the MDS hands out to clients contains a proxy
+DS entry at the head of ffs_data_servers (or otherwise
 flagged for routing; see the flag below).  This entry names
 the selected PS.  Source and destination DS entries MAY also
 appear in the layout at the MDS's discretion, but in the
@@ -1520,13 +1520,13 @@ the duration of the migration.]]`
 For each file F whose mirror on a draining dstore D is being
 migrated, the MDS persists three logical layout records:
 
-- **L1** -- the **active** layout for external clients.  Mirror
+- **L1** -- the active layout for external clients.  Mirror
   set includes D unchanged.  All external traffic (existing
   cached layouts, fresh LAYOUTGETs) sees L1.
-- **L2** -- the **candidate** post-migration layout.  Mirror set
+- **L2** -- the candidate post-migration layout.  Mirror set
   has D replaced by the target G.  Not visible to external
   clients during the migration window.
-- **L3** -- the **composite** layout served only to the
+- **L3** -- the composite layout served only to the
   registered PS that owns the migration.  Two mirror entries:
   - `M1` (read source): the current L1 mirror set.  PS reads
     source bytes from any mirror in M1.
@@ -1595,7 +1595,7 @@ layout instead of a normal L1 RW grant.
 
 The L3 layout stateid is a normal NFSv4 layout stateid; the
 PS uses it for CHUNK / WRITE / READ I/O against the source and
-target DSes in the standard way.  It is **distinct** from the
+target DSes in the standard way.  It is distinct from the
 per-migration handle, which is `proxy_stateid4`
 ({{sec-proxy-stateid}}); the MDS keys its persisted in-flight
 migration record on the proxy_stateid, not on the layout
@@ -1637,7 +1637,7 @@ case (single mirror replacement under a Client Side Mirroring
 codec).  An MDS implementation that supports more general
 migrations (e.g., a single shard add to an erasure-coded
 file, or a partial mirror-set rotation under FFv2 RS) MAY
-record migration state as **per-instance deltas** on the file's
+record migration state as per-instance deltas on the file's
 existing layout records, rather than as a complete L2/L3 pair.
 
 In this informative model, each migration record carries an
@@ -1658,7 +1658,7 @@ transformation on one position within one segment of
    not produced by the wire ops in this revision).
 
 The current published layout (`i_layout_segments`) is built
-**through** the deltas: when LAYOUTGET runs while a migration
+through the deltas: when LAYOUTGET runs while a migration
 is active, the layout-build path consults the migration
 record and emits the during-migration view by applying the
 deltas to the base segments.  `i_layout_segments` itself is
@@ -1893,8 +1893,8 @@ After detecting session loss, the PS:
 3. **Per-file recovery** for each in-flight migration the PS
    was working on uses the standard NFSv4 reclaim path with one
    PS-side persistence requirement:
-   - **PS implementations MUST persist each in-flight migration's
-     layout stateid in PS-local stable storage** when the MDS
+   - PS implementations MUST persist each in-flight migration's
+     layout stateid in PS-local stable storage when the MDS
      grants the L3 layout.  Lives in PS-side state (e.g., a small
      sidecar file or DB table keyed by file FH).  This is the
      only PS-side persistence the data mover requires beyond
@@ -2400,7 +2400,7 @@ document that updates or obsoletes it.
 NFSv4.2 callback operation numbers 17, 18, 19, and 20 (which
 the prior version of this document had assigned to
 OP_CB_PROXY_MOVE, OP_CB_PROXY_REPAIR, OP_CB_PROXY_STATUS, and
-OP_CB_PROXY_CANCEL respectively) are **reserved** by this
+OP_CB_PROXY_CANCEL respectively) are reserved by this
 document and MUST NOT be reused for any future callback
 operation.  The reservation prevents wire-protocol confusion
 with implementations of the prior version of this draft.  See
