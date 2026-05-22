@@ -143,7 +143,6 @@ This document defines a new protocol role, a new session,
 and a small set of operations that flow on that session.
 Around that core it specifies the layout conventions a
 client observes while a proxy operation is active, the
-rules that match a client to a co-resident proxy, the
 credential-forwarding rules a translating proxy must
 follow, and the recovery semantics for the three actor
 failures that matter during an operation (PS, MDS, DS).
@@ -162,8 +161,8 @@ required for the PS protocol.
 
 The fore-channel surface is deliberately small.
 PROXY_REGISTRATION ({{sec-PROXY_REGISTRATION}}) lets the PS
-declare the codec set it supports, its co-residency
-affinity token, and its lease.  PROXY_PROGRESS
+declare the codec set it supports and its lease.
+PROXY_PROGRESS
 ({{sec-PROXY_PROGRESS}}) is the PS's poll-and-report op:
 the PS sends it as a heartbeat (with optional progress
 reports on in-flight migrations) and the MDS replies with
@@ -175,11 +174,7 @@ PS-to-MDS.
 
 Around the operation set, the document specifies the layout
 conventions a client sees during a proxy operation and how
-a client discovers the PS in the first place.  Co-residency
-attestation -- the "affinity matching" machinery that makes
-host-local proxy shortcuts safe -- travels as an affinity
-token carried in PROXY_REGISTRATION and is described in
-{{sec-affinity}}.
+a client discovers the PS in the first place.
 
 Codec translation for codec-ignorant clients, including
 NFSv3 clients, is in scope, and is the one case that
@@ -259,9 +254,8 @@ than bolted into this document.
 **Proxy-internal features that do not surface on the
 wire.**  A proxy MAY implement content-integrity and
 error-correction layers, encryption and compression
-pass-through, log-structured write staging, sector-alignment
-normalisation, and POSIX-loopback shortcuts when
-proxy and client are co-resident.  These are useful
+pass-through, log-structured write staging, and
+sector-alignment normalisation.  These are useful
 motivating scenarios for the move/repair vocabulary but do
 not require new protocol surface beyond what the
 PROXY_PROGRESS / PROXY_DONE / PROXY_CANCEL fore-channel set
@@ -541,10 +535,10 @@ is a PS-initiated act -- the PS is saying "here I am, with
 these capabilities."  Without a PS-to-MDS direction the
 capability-advertisement would have to be inferred from
 session-setup flags alone, which is inadequate for the range
-of capabilities a PS can usefully advertise (codec set,
-affinity token, and -- as the DEVICEID_REGISTRATION open
-question anticipates -- fault-zone coordinates and other
-deployment attributes).
+of capabilities a PS can usefully advertise (codec set
+and -- as the DEVICEID_REGISTRATION open question
+anticipates -- fault-zone coordinates and other deployment
+attributes).
 
 A consequence of this direction choice is that a server that
 implements both the DS and PS roles toward the same MDS runs
@@ -566,9 +560,9 @@ connection per MDS it is registered with.
 ## Flow Summary
 
 The PS opens a session to the MDS and issues
-PROXY_REGISTRATION, declaring its supported codecs and its
-affinity token; the MDS records the registration and returns
-a registration id with a granted lease.  The PS then polls
+PROXY_REGISTRATION, declaring its supported codecs; the MDS
+records the registration and returns a registration id with
+a granted lease.  The PS then polls
 the MDS via PROXY_PROGRESS at lease/2 cadence (or as the
 MDS's `ppr_lease_remaining_sec` hint directs).  When the MDS
 decides to move or repair a file, it selects a registered PS
@@ -609,7 +603,7 @@ quiesced case they are recalled before the PS work starts.
   | ---- CREATE_SESSION ----------> | (PS opens session to MDS)
   | <--- session est. ------------- |
   |                                 |
-  | ---- PROXY_REGISTRATION ------> | (advertise codecs, affinity)
+  | ---- PROXY_REGISTRATION ------> | (advertise codecs)
   | <--- reg_id, granted_lease ---- |
   |                                 |
   | ---- PROXY_PROGRESS ----------> | (heartbeat poll)
@@ -865,7 +859,6 @@ does not own.
 ~~~ xdr
 /// struct PROXY_REGISTRATION4args {
 ///     ffv2_coding_type4  prr_codecs<>;
-///     opaque             prr_affinity<>;
 ///     uint32_t           prr_lease;
 ///     uint32_t           prr_flags;
 /// };
@@ -906,16 +899,6 @@ inherent in the (source, destination) layout pair, this
 codec-set membership is all the capability information the
 MDS needs to match.  An empty list results in NFS4ERR_INVAL
 in this revision.
-
-The prr_affinity field is an opaque token the PS supplies for
-co-residency attestation with a client.  The MDS does not
-interpret it.  At layout-grant time the MDS compares
-prr_affinity against the requesting client's co_ownerid
-(Section 18.35 of {{RFC8881}}); a match indicates that the
-client and the PS share a host, and the MDS MAY use it as
-input to PS selection.  See {{sec-affinity}} for the matching
-algorithm.  An empty prr_affinity means the PS does not claim
-co-residency with any client.
 
 The prr_lease field is the lease duration the PS requests in
 seconds.  The MDS MAY grant a shorter one, returned in
@@ -1370,12 +1353,7 @@ MDS coordinates assignment fan-out per the following rules:
    assignment stays in the queue; the next PS poll re-tries
    the walk.
 
-3. **No PS affinity.**  The MDS does not implement
-   "this file always goes to this PS"; round-robin is the
-   default.  An implementation MAY add affinity (e.g., by
-   client-IP locality) without breaking conformance.
-
-4. **Cross-PS reassignment on lease expiry.**  If a PS holding
+3. **Cross-PS reassignment on lease expiry.**  If a PS holding
    in-flight migrations loses its session (lease expiry, squat
    from a competing PS), the MDS:
 
@@ -1387,7 +1365,7 @@ MDS coordinates assignment fan-out per the following rules:
      target if the old target was contaminated; the autopilot
      decides).
 
-5. **PS Identity continuity across reconnects.**  A PS that
+4. **PS Identity continuity across reconnects.**  A PS that
    reconnects with the same `client_owner4` (recovers the same
    clientid via EXCHANGE_ID) retains ownership of its
    in-flight migrations.  No new assignment necessary; the PS
@@ -1403,48 +1381,6 @@ Implementations SHOULD include a TSan-style invariant test that
 confirms, under concurrent PROXY_PROGRESS polls from N PSes,
 the MDS never assigns two records with the same `(file_FH,
 target_dstore)` key.
-
-# Affinity Matching {#sec-affinity}
-
-A PS MAY populate prr_affinity at registration time with a
-token that lets the MDS recognize co-residency with a client.
-The canonical use case: a client host is running a local PS,
-potentially in a container on the same physical machine as
-the client.  Network-level checks alone are not reliable --
-the PS may be on a container IP, a separate netns, or behind
-a NAT -- so an explicit token is required.
-
-The matching algorithm has three moving parts.  First,
-clients opt in by embedding an affinity token in the
-co_ownerid they present at EXCHANGE_ID; clients that do not
-wish to participate send a normal co_ownerid with no embedded
-token.  Second, when the MDS processes a LAYOUTGET on a file
-that has an active proxy MOVE or REPAIR migration, the MDS
-iterates over registered PSes and compares each PS's
-prr_affinity against the requesting client's co_ownerid; a
-match (equality, substring, or hash equivalence -- the match
-predicate is implementation-defined but MUST be deterministic
-for a given MDS instance) indicates co-residency.  Third,
-when a match exists the MDS MAY use it as input to PS
-selection, preferring, when multiple PSes are eligible, the
-one that matches the most clients' affinity tokens.
-
-The layout returned names the selected PS first in
-ffs_data_servers.  For mirrored coding types this makes the
-local PS the client's default read target (matching the FFv1
-affinity pattern).  For erasure-coded types it makes the
-local PS the preferred encode endpoint.
-
-Affinity is advisory.  The MDS MUST NOT grant any authority
-based solely on affinity; the normal authentication model
-still applies, and a client that claims an affinity token it
-has no right to gains at most a sub-optimal layout, not
-unauthorized access.
-
-Note: there is no proposal to stamp the affinity token into the
-filehandle.  The MDS has already performed the match before the
-layout reaches the client, and the layout's deviceinfo carries
-all the information a client-side shortcut needs.
 
 # Layout Shape During a Proxy Operation {#sec-layout-shape}
 
@@ -2169,14 +2105,7 @@ is expanded in {{sec-credential-forwarding}}.
     validate the PS's transport-security credentials against
     a deployment allowlist.
 
-5.  **Affinity token.**  prr_affinity is a co-residency
-    attestation, not an authentication mechanism.  Matching
-    an affinity token between a PS and a client grants the
-    client no new access rights; it is used only as input to
-    PS-selection preferences.  A client cannot elevate
-    privilege by spoofing an affinity token.
-
-6.  **Registration lease expiry.**  If a PS's lease expires
+5.  **Registration lease expiry.**  If a PS's lease expires
     mid-operation, the MDS MUST abandon the operation:
     discard the in-flight migration record, revert the
     affected layouts to the pre-operation state, and arrange
@@ -2569,8 +2498,8 @@ The design is substantially complete but still has open
 points that need Working Group input or internal agreement
 before the first submission.  They fall into three rough
 categories: wire-level details that need to be nailed down
-(renewal semantics, the affinity match predicate, richer
-capability advertising), architectural choices that affect
+(renewal semantics and richer capability advertising),
+architectural choices that affect
 the mechanism's shape (multiple concurrent proxies per file,
 transitive proxy, capability-scoped EXCHGID flag), and
 policy questions whose answers bind deployment choices more
@@ -2588,20 +2517,13 @@ of it.
     keeps the op
     count smaller and keeps renewal and first-time
     registration on a single code path, at the cost of
-    carrying codec and affinity fields on every renewal.  A
-    dedicated PROXY_RENEW op is cheaper on the wire but adds
+    carrying the codec set on every renewal.  A dedicated
+    PROXY_RENEW op is cheaper on the wire but adds
     an op number and a second code path.  The choice mostly
     affects implementation complexity, not protocol
     expressiveness.
 
-2.  **Affinity match predicate.**  Is exact equality of
-    prr_affinity and co_ownerid sufficient, or does the spec
-    need to define substring / hash matching explicitly?  If
-    implementation-defined, MDS implementations that pick
-    different predicates will produce different layouts --
-    is that acceptable?
-
-3.  **Multiple concurrent proxies per file.**  The design
+2.  **Multiple concurrent proxies per file.**  The design
     assumes one proxy per file per operation.  Should two
     proxies be allowed to pipeline a large file (proxy A
     drives the first 1 TB, proxy B drives the next)?  The
@@ -2618,7 +2540,7 @@ of it.
     parallelism later without invalidating the single-proxy
     path.
 
-4.  **Transitive proxy.**  If a file in PROXY_ACTIVE needs a
+3.  **Transitive proxy.**  If a file in PROXY_ACTIVE needs a
     second move (e.g., a DS maintenance window opens while a
     repair is already running), what happens?  Queueing the
     second move postpones the maintenance, which may not be
@@ -2632,18 +2554,18 @@ of it.
     probably depends on operator priorities and may need to be
     a configurable MDS policy rather than a protocol rule.
 
-5.  **Persistent vs ephemeral MDS operation state.**  Is
+4.  **Persistent vs ephemeral MDS operation state.**  Is
     operation persistence a SHOULD or a MAY?  Production
     deployments probably want SHOULD to avoid restart cost on
     large moves; prototypes probably want MAY.
 
-6.  **Registration as a capability-scoped authority.**  Should
+5.  **Registration as a capability-scoped authority.**  Should
     PROXY_REGISTRATION require a separate EXCHGID4 flag (e.g.,
     EXCHGID4_FLAG_USE_PROXY_DS) to distinguish proxy-capable
     DSes from generic DSes, or is the registration itself the
     capability declaration?
 
-7.  **Richer capability advertising.**  prr_codecs covers the
+6.  **Richer capability advertising.**  prr_codecs covers the
     transformation classes that matter for move / repair.
     Features that are implementation-internal (encryption,
     compression, alignment normalization) do not need to be
@@ -2653,7 +2575,7 @@ of it.
     capability descriptor.  Worth revisiting when those ops
     are defined.
 
-8.  **RPCSEC_GSSv3 for translating-proxy credential
+7.  **RPCSEC_GSSv3 for translating-proxy credential
     forwarding.**  Credential forwarding under AUTH_SYS is
     weak (uid spoofable, no integrity protection).  RPCSEC_GSSv3
     structured privilege assertion ({{RFC7861}} Section 2.5.2)
@@ -2665,11 +2587,11 @@ of it.
     GSSv3 adoption as a side effect of standardizing this
     mechanism.
 
-9.  **DEVICEID_REGISTRATION generalization.**
+8.  **DEVICEID_REGISTRATION generalization.**
     PROXY_REGISTRATION in this document is a proxy-specific
     capability-advertisement op: a DS opens a session to the
     MDS and declares that it is proxy-capable, along with
-    codec-set membership, an affinity token, and a lease.
+    codec-set membership and a lease.
 
     The same mechanism has broader applicability as a generic
     DS -> MDS capability advertisement -- a DEVICEID_REGISTRATION
@@ -2738,9 +2660,6 @@ Out of Scope before submission.
    namespace.
 -  Delta-journaling during a move for online moves without
    dual-writes.
--  FH-stamped affinity tokens (not proposed; deviceinfo
-   already carries the necessary information for client-side
-   locality shortcuts).
 
 --- back
 
