@@ -1685,11 +1685,13 @@ proxy_stateid tables across the lifecycle described above.
 
 # Client Behavior
 
-A client that observes a layout with FFV2_DS_FLAGS_PROXY
-routes all CHUNK I/O to the PROXY-flagged DS entry and does
-not issue I/O directly to any non-PROXY DS in that layout.
-Non-PROXY DSes MAY appear in the layout for informational
-reasons but MUST NOT be addressed by the client.
+A client inspects the ffv2_ds_flags4 bitmap on each
+data-server entry in the layout.  An entry with
+FFV2_DS_FLAGS_PROXY set -- the PROXY-flagged DS -- receives
+all CHUNK I/O for the file; the client does not issue I/O
+directly to any other DS in the layout.  Non-PROXY DSes MAY
+appear in the layout for informational reasons but MUST NOT
+be addressed by the client.
 
 The client uses its existing layout stateid against the
 PROXY-flagged DS entry; the PS accepts CHUNK ops under that
