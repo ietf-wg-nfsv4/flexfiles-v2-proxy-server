@@ -836,9 +836,8 @@ until either:
 ### Renewal Semantics
 
 PROXY_PROGRESS may carry a proxy_stateid in its arguments to
-renew an in-flight assignment (a future revision of the
-PROXY_PROGRESS args extends `ppa_flags` for this purpose).
-The `seqid` field of `proxy_stateid4` follows the standard
+renew an in-flight assignment.  The `seqid` field of
+`proxy_stateid4` follows the standard
 NFSv4 stateid seqid semantics in {{RFC8881}} S8.2.4:
 
 -  The MDS bumps `seqid` on each issuance, including renewal
