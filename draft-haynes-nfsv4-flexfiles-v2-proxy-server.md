@@ -1239,17 +1239,16 @@ first failure encountered:
 If all validations succeed, the MDS atomically:
 
 -  For a `pd_status` of `NFS4_OK`: applies the migration's recorded
-   per-instance deltas to the file's active layout
-   (`i_layout_segments`), removing DRAINING slots, promoting
-   INCOMING slots to STABLE, drops the L3 PS-only composite,
-   issues CB_LAYOUTRECALL on the prior layout to external
-   clients still holding cached L1 references, defers final
-   removal of decommissioned mirrors until all L1 holders
-   return their layouts.  See "Layout Shape During a Proxy
-   Operation" ({{sec-layout-shape}}) for the per-instance
-   delta machinery (informative).
+   per-instance deltas to the file's active layout, removing
+   DRAINING slots, promoting INCOMING slots to STABLE, drops
+   the L3 PS-only composite, issues CB_LAYOUTRECALL on the
+   prior layout to external clients still holding cached L1
+   references, defers final removal of decommissioned mirrors
+   until all L1 holders return their layouts.  See "Layout
+   Shape During a Proxy Operation" ({{sec-layout-shape}}) for
+   the per-instance delta machinery (informative).
 -  For any other `pd_status`: discards the migration's
-   recorded deltas without touching `i_layout_segments`.
+   recorded deltas without touching the file's active layout.
    No CB_LAYOUTRECALL is needed (external clients never saw
    the post-image).  The PS owns cleanup of any half-written
    data it placed on INCOMING DSes.
@@ -1318,8 +1317,8 @@ If validation succeeds, the MDS discards the migration's
 recorded deltas, retires the proxy operation, invalidates
 `pc_stateid`, and (informatively) updates its
 operator-facing telemetry to record the cancellation.  No
-CB_LAYOUTRECALL is needed.  Side effects on `i_layout_segments`
-mirror PROXY_DONE with a failing `pd_status`.
+CB_LAYOUTRECALL is needed.  Side effects on the file's active
+layout mirror PROXY_DONE with a failing `pd_status`.
 
 The distinction between PROXY_DONE(FAIL) and PROXY_CANCEL is
 purely intent / accounting: PROXY_DONE(FAIL) records that the
@@ -1674,7 +1673,7 @@ existing layout records, rather than as a complete L2/L3 pair.
 In this informative model, each migration record carries an
 array of per-instance deltas, each delta describing a
 transformation on one position within one segment of
-`i_layout_segments`.  Four instance states are useful:
+`layout_segments`.  Four instance states are useful:
 
 -  `STABLE` -- unchanged; client writes go here directly.
 -  `DRAINING` -- a slot being decommissioned; under
@@ -1688,11 +1687,11 @@ transformation on one position within one segment of
    target DSes.  Used by keep-and-shadow (forward-compat;
    not produced by the wire ops in this revision).
 
-The current published layout (`i_layout_segments`) is built
+The current published layout (`layout_segments`) is built
 through the deltas: when LAYOUTGET runs while a migration
 is active, the layout-build path consults the migration
 record and emits the during-migration view by applying the
-deltas to the base segments.  `i_layout_segments` itself is
+deltas to the base segments.  `layout_segments` itself is
 never mutated until `PROXY_DONE(NFS4_OK)` collapses the
 deltas into the base records permanently.
 
