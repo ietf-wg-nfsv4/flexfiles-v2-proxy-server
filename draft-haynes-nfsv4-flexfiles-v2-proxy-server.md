@@ -1464,10 +1464,6 @@ The PROXY flag is a new bit on ffv2_ds_flags4:
 ~~~
 {: #fig-FFV2_DS_FLAGS_PROXY title="FFV2_DS_FLAGS_PROXY" }
 
-As per {{I-D.haynes-nfsv4-flexfiles-v2}}'s Flag-Word Allocation
-rule, IANA does not maintain a registry for ffv2_ds_flags4; the
-bit is governed by this document.
-
 When FFV2_DS_FLAGS_PROXY is set on any data server entry in
 a layout, clients MUST direct all CHUNK I/O for this file to
 that DS rather than to any other data server in the layout.
