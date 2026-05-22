@@ -405,8 +405,8 @@ Unlike the move / repair / evacuation / transition use cases
 above, codec translation is persistent per client.  The
 file itself is not changing state.  What changes is the layout
 the MDS hands to a codec-ignorant client: that client gets a
-layout with FFV2_DS_FLAGS_PROXY set and a coding_type the
-client does support (typically FFV2_ENCODING_MIRRORED, or
+single-DS layout naming a translating PS, with a coding_type
+the client does support (typically FFV2_ENCODING_MIRRORED, or
 for NFSv3 clients just a flat NFSv3 data surface).  The proxy
 encodes and decodes on the fly against the real DSes; the
 client sees a flat file.
@@ -415,8 +415,7 @@ The same file may be accessed directly by codec-aware clients
 (with a normal layout naming the real DSes) and through the
 proxy by codec-ignorant clients (with a proxy layout)
 simultaneously.  The MDS issues a different layout per
-request; FFV2_DS_FLAGS_PROXY is set only in the layouts that
-need translation.
+request; only the codec-ignorant case routes through the PS.
 
 ### Mechanism
 
@@ -507,9 +506,8 @@ reply on the fore-channel, and the PS reports completion or
 cancellation back via PROXY_DONE / PROXY_CANCEL on the same
 session, so no callback program is required for this protocol.
 The Client <-> PS pair gains no new ops: clients reach a PS
-through the normal pNFS data path, seeing it as a DS with
-FFV2_DS_FLAGS_PROXY set in the layout
-({{sec-layout-shape}}).  The MDS <-> DS pair is also
+through the normal pNFS data path, seeing it as the DS named
+in a single-DS layout ({{sec-layout-shape}}).  The MDS <-> DS pair is also
 unchanged; the tight-coupling control session in
 {{I-D.haynes-nfsv4-flexfiles-v2}} carries over as defined
 there.
@@ -518,8 +516,8 @@ there.
 
 ### Single-Layout Model
 
-This design uses a single layout with a PROXY-flagged entry
-rather than two linked layouts.  Three considerations drive
+This design uses a single layout naming the PS as the sole
+DS rather than two linked layouts.  Three considerations drive
 that choice.  pNFS clients already handle single layouts
 cleanly, so no new layout-linkage mechanism needs to be
 invented or implemented on the client.  The client's view of
@@ -663,9 +661,8 @@ work it has already started via the fore-channel
 PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
 
 Clients interact with the PS through the normal layout path.
-During a proxy operation the MDS hands out layouts that name
-the PS as a DS entry with FFV2_DS_FLAGS_PROXY set; clients
-route CHUNK I/O to that entry.  Clients that arrive
+During a proxy operation the MDS hands out a single-DS
+layout naming the PS; clients route CHUNK I/O to that DS.  Clients that arrive
 mid-operation see the proxy layout from the start and need
 no additional signalling; clients that held an older
 (non-proxy) layout are recalled via CB_LAYOUTRECALL and
@@ -1448,27 +1445,30 @@ MDS and the PS.  The layout shape is therefore what a client
 implementer needs to read to know how its code interacts with
 a proxied file.
 
-When a proxy MOVE or REPAIR migration is active for a file,
-the layout the MDS hands out to clients contains a proxy
-DS entry at the head of ffs_data_servers (or otherwise
-flagged for routing; see the flag below).  This entry names
-the selected PS.  Source and destination DS entries MAY also
-appear in the layout at the MDS's discretion, but in the
-simplest case the PS is the only visible DS, and the source
-and destination mirror sets are internal to the PS.
+On a LAYOUTGET, the MDS chooses one of three outcomes:
 
-The PROXY flag is a new bit on ffv2_ds_flags4:
+-  A direct-DS layout, when no proxy operation is in flight
+   for the file and the client's coding-type support set
+   includes the file's coding.  This is the unchanged FFv2
+   path.
 
-~~~ xdr
-/// const FFV2_DS_FLAGS_PROXY         = 0x00000040;
-~~~
-{: #fig-FFV2_DS_FLAGS_PROXY title="FFV2_DS_FLAGS_PROXY" }
+-  A single-DS layout naming the PS, when a MOVE or REPAIR
+   migration is in flight for the file, or when the client's
+   coding-type support set does not include the file's coding
+   and a registered PS can translate.  The client uses this
+   layout as it would any FFv2 layout, sending CHUNK ops to
+   the named DS; the PS internally dispatches reads and
+   writes to the source and destination DSes.
 
-When FFV2_DS_FLAGS_PROXY is set on any data server entry in
-a layout, clients MUST direct all CHUNK I/O for this file to
-that DS rather than to any other data server in the layout.
-The PS internally dispatches reads and writes to the source
-and destination DSes.
+-  An error from the codec-negotiation path (see
+   {{I-D.haynes-nfsv4-flexfiles-v2}}), when the client's
+   coding-type support set does not include the file's coding
+   and no registered PS can translate.
+
+A client that supports FFv2 -- which is the precondition for
+any of this -- needs no proxy-specific code: the proxy case
+arrives as a single-DS layout, indistinguishable from any
+other FFv2 layout.
 
 ## Atomic commit on PROXY_DONE {#sec-atomic-commit}
 
@@ -1685,17 +1685,16 @@ proxy_stateid tables across the lifecycle described above.
 
 # Client Behavior
 
-A client inspects the ffv2_ds_flags4 bitmap on each
-data-server entry in the layout.  An entry with
-FFV2_DS_FLAGS_PROXY set -- the PROXY-flagged DS -- receives
-all CHUNK I/O for the file; the client does not issue I/O
-directly to any other DS in the layout.  Non-PROXY DSes MAY
-appear in the layout for informational reasons but MUST NOT
-be addressed by the client.
+During a proxy operation the layout the MDS hands a client is
+a single-DS FFv2 layout naming the PS.  The client treats it
+as any other FFv2 layout, sending CHUNK ops to the named DS
+under its existing layout stateid.  Nothing in the client's
+path distinguishes "the DS is a PS" from "the DS is a real
+data server"; that distinction lives entirely on the MDS
+side.
 
-The client uses its existing layout stateid against the
-PROXY-flagged DS entry; the PS accepts CHUNK ops under that
-stateid because the MDS has registered the stateid via
+The PS accepts those CHUNK ops under the client's existing
+layout stateid because the MDS has registered the stateid via
 TRUST_STATEID on the PS, per the tight-coupling semantics in
 {{I-D.haynes-nfsv4-flexfiles-v2}}.
 
@@ -1710,16 +1709,16 @@ If the MDS recalls the layout mid-operation (the PS failed
 and is being replaced, or the operation completed and normal
 DS layouts are being reissued), the client LAYOUTRETURNs as
 usual and reacquires via LAYOUTGET.  The new layout may name
-a different PS, a different mirror set, or no PROXY-flagged
-entry if the operation has completed.
+a different PS, a different mirror set, or -- if the proxy
+operation has completed -- the real DSes directly.
 
 ## In-Flight I/O When the PS Changes
 
 In-flight I/O to the old PS when the MDS recalls the layout
 MAY complete at the old PS; results remain valid under the
 old PS's authority.  New I/O issued after LAYOUTRETURN MUST
-go through the replacement PS (or, if the new layout has no
-PROXY-flagged entry, directly to the DSes named there).
+go through the DS(es) the new layout names: a replacement
+PS, or the real DSes if the proxy operation has completed.
 
 # State Machine
 
@@ -1994,11 +1993,11 @@ proxy-server protocol.
 
 ## Clients
 
-Client behavior is a normal layout path with a new flag.
-Clients that do not recognize FFV2_DS_FLAGS_PROXY will treat
-the PROXY-flagged DS entry as any other DS and route I/O to
-it normally; that is in fact the correct behavior.  No
-client-side version negotiation is needed.
+An FFv2-supporting client needs no proxy-specific code: a
+proxy-routed layout arrives as a single-DS FFv2 layout
+indistinguishable from any other single-DS layout the client
+might receive.  No client-side version negotiation is
+required.
 
 Clients that require strict per-DS identity checking (e.g.,
 "the layout's DS must match a pre-allowlisted fingerprint")
@@ -2038,8 +2037,8 @@ only the MDS talks to the PS over it, and the MDS has long
 been a trusted coordinator in the pNFS model -- but it
 carries operations that affect every client whose layouts
 reach a PS.  The data path is broader, because it exposes
-the PS to every client whose layout has the FFV2_DS_FLAGS_PROXY
-flag; a compromised PS on that path has the same observational
+the PS to every client whose layout names it; a compromised
+PS on that path has the same observational
 and modification reach as a compromised DS, and in the
 translating-PS case a larger reach because of the elevated
 identity the PS typically runs with.
