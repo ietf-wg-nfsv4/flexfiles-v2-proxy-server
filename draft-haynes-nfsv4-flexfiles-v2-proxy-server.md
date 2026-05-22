@@ -2072,15 +2072,7 @@ choice).
 # Backward Compatibility
 
 This section addresses client/DS compatibility with the
-proxy-server protocol.  For implementations of an earlier
-revision of this draft that pre-built against the prior
-CB_PROXY_* shape, see "Major revision (2026-04-26)" at the
-front of the draft: pre-built CB_PROXY_* implementations
-SHOULD treat CB op numbers 17-20 as defunct (return
-NFS4ERR_NOTSUPP if received), MUST migrate driving logic to
-the PROXY_PROGRESS poll path, and MUST replace any
-CB_PROXY_CANCEL receive logic with the new fore-channel
-PROXY_CANCEL send logic.
+proxy-server protocol.
 
 ## Clients
 
@@ -2513,16 +2505,6 @@ defined by {{I-D.haynes-nfsv4-flexfiles-v2}}; that document
 explicitly records its flag-word bitmaps as not
 IANA-registered, and any future bit allocations are made by a
 document that updates or obsoletes it.
-
-NFSv4.2 callback operation numbers 17, 18, 19, and 20 (which
-the prior version of this document had assigned to
-OP_CB_PROXY_MOVE, OP_CB_PROXY_REPAIR, OP_CB_PROXY_STATUS, and
-OP_CB_PROXY_CANCEL respectively) are reserved by this
-document and MUST NOT be reused for any future callback
-operation.  The reservation prevents wire-protocol confusion
-with implementations of the prior version of this draft.  See
-"Major revision (2026-04-26)" for the design context behind
-the retirement.
 
 Following the precedent in
 {{I-D.haynes-nfsv4-flexfiles-v2}} (which in turn follows
