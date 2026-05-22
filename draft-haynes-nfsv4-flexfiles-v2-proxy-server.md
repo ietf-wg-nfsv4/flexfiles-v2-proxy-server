@@ -412,8 +412,8 @@ above, codec translation is persistent per client.  The
 file itself is not changing state.  What changes is the layout
 the MDS hands to a codec-ignorant client: that client gets a
 layout with FFV2_DS_FLAGS_PROXY set and a coding_type the
-client does support (typically FFV2_CODING_MIRRORED, or for
-NFSv3 clients just a flat NFSv3 data surface).  The proxy
+client does support (typically FFV2_ENCODING_MIRRORED, or
+for NFSv3 clients just a flat NFSv3 data surface).  The proxy
 encodes and decodes on the fly against the real DSes; the
 client sees a flat file.
 
@@ -432,7 +432,7 @@ codec-ignorant client can speak: for an NFSv3 {{RFC1813}}
 client that is an NFSv3 server that re-exports the MDS's
 namespace; for a legacy NFSv4.2 client that understands only
 some codecs, it is an NFSv4.2 data-server surface presenting
-FFV2_CODING_MIRRORED (or an equivalent codec the client
+FFV2_ENCODING_MIRRORED (or an equivalent codec the client
 supports).  On its MDS-facing side it is an NFSv4.2
 client to the MDS plus whatever DS protocol the MDS's real
 DSes speak.  The proxy translates each client-facing op into
