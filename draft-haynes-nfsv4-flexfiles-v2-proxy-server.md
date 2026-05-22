@@ -793,10 +793,7 @@ MUST NOT use an open, lock, layout, or delegation stateid
 lookup table to resolve a proxy_stateid.  Conversely, a
 leaked proxy_stateid presented in the stateid argument of an
 ordinary operation (e.g., READ, WRITE, SETATTR, CLOSE) MUST
-be rejected with NFS4ERR_BAD_STATEID by the per-op stateid
-validator: the per-op tables are disjoint by construction,
-and a value allocated as a proxy_stateid will not match any
-entry in any other table.
+be rejected with NFS4ERR_BAD_STATEID.
 
 ### MDS Minting
 
