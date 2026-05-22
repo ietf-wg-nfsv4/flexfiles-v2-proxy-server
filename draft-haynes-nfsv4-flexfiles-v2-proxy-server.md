@@ -714,38 +714,24 @@ once at session setup and on renewal.  PROXY_PROGRESS (94) is
 issued by the PS as a heartbeat-with-poll: the PS reports
 periodic and terminal progress for in-flight migrations and
 optionally requests new work; the MDS replies inline with
-zero or more new work assignments.  PROXY_DONE (99) commits
+zero or more new work assignments.  PROXY_DONE (95) commits
 or rolls back an individual migration when the PS finishes
-it; PROXY_CANCEL (100) lets the PS abort early.  None of
+it; PROXY_CANCEL (96) lets the PS abort early.  None of
 these operations is sent by pNFS clients.
-
-NFSv4.2 callback operation numbers 17-20 (the prior version
-of this draft used them for CB_PROXY_MOVE, CB_PROXY_REPAIR,
-CB_PROXY_STATUS, and CB_PROXY_CANCEL respectively) are
-reserved by this document and MUST NOT be reused.  See
-the "Major revision (2026-04-26)" front-matter section and
-the IANA Considerations section ({{iana-considerations}})
-for the rationale and the wire-level reservation record.
 
 ~~~ xdr
 /// /* New operations for the proxy server (PS -> MDS) */
 ///
 /// OP_PROXY_REGISTRATION   = 93;
 /// OP_PROXY_PROGRESS       = 94;
-/// OP_PROXY_DONE           = 99;
-/// OP_PROXY_CANCEL         = 100;
+/// OP_PROXY_DONE           = 95;
+/// OP_PROXY_CANCEL         = 96;
 ~~~
 {: #fig-proxy-server-opnums title="Proxy server operation numbers"}
 
-Opcodes 93 and 94 continue the MDS-to-DS control-plane range
-that {{I-D.haynes-nfsv4-flexfiles-v2}} opens at 88
+Opcodes 93 through 96 continue the MDS-to-DS control-plane
+range that {{I-D.haynes-nfsv4-flexfiles-v2}} opens at 88
 (TRUST_STATEID through BULK_REVOKE_STATEID at 88-90).
-Opcodes 99 and 100 were chosen to leave 95-98 reserved by
-this document (the prior revision had assigned them to the
-now-retired CB_PROXY_* set; see {{iana-considerations}}).
-If other in-flight NFSv4.2 extensions collide on these values
-during IANA coordination, the final assignment will be
-reconciled by the consuming RFC editor.
 
 The following amendment blocks extend the nfs_argop4 and
 nfs_resop4 dispatch unions from {{RFC7863}} with the new ops.
@@ -1171,12 +1157,12 @@ PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
 The PS-to-MDS protocol uses two new fore-channel operations
 in addition to the extended PROXY_PROGRESS:
 
-- `PROXY_DONE` (op 99): PS reports terminal success or failure
+- `PROXY_DONE` (op 95): PS reports terminal success or failure
   on a specific in-flight migration.  The MDS uses the
   ppd_status to atomically commit (success: swap the inode's
   active layout from L1 to L2) or roll back (failure: keep L1,
   drop L2/G).
-- `PROXY_CANCEL` (op 100): PS aborts a work item it was
+- `PROXY_CANCEL` (op 96): PS aborts a work item it was
   assigned but cannot complete (e.g., source DS becomes
   unreachable, PS resource exhaustion).  The MDS treats this
   as PROXY_DONE with a fail-equivalent status: rolls back to
@@ -1190,7 +1176,7 @@ MDS keys its persisted in-flight migration record on the
 `(clientid, file_FH, layout_stid)` triple.  No new stateid type
 is required.
 
-## Operation 99: PROXY_DONE - Commit or Roll Back a Proxy Operation {#sec-PROXY_DONE}
+## Operation 95: PROXY_DONE - Commit or Roll Back a Proxy Operation {#sec-PROXY_DONE}
 
 ### ARGUMENTS
 
@@ -1297,7 +1283,7 @@ Atomicity is critical: external client traffic must transition
 cleanly across this op; either the per-instance deltas commit
 fully or they do not commit at all.
 
-## Operation 100: PROXY_CANCEL - Abort a Proxy Operation {#sec-PROXY_CANCEL}
+## Operation 96: PROXY_CANCEL - Abort a Proxy Operation {#sec-PROXY_CANCEL}
 
 ### ARGUMENTS
 
@@ -2517,8 +2503,8 @@ the editors' infrastructure.
 
 The fore-channel NFSv4.2 operations defined in {{sec-new-ops}}
 and {{sec-new-fore-channel}} -- OP_PROXY_REGISTRATION (93),
-OP_PROXY_PROGRESS (94), OP_PROXY_DONE (99), and
-OP_PROXY_CANCEL (100) -- follow the convention that NFSv4.2
+OP_PROXY_PROGRESS (94), OP_PROXY_DONE (95), and
+OP_PROXY_CANCEL (96) -- follow the convention that NFSv4.2
 operation numbers are governed by the publishing document and
 do not require a separate IANA registry entry.  The same
 convention applies to the new flag bit FFV2_DS_FLAGS_PROXY,
