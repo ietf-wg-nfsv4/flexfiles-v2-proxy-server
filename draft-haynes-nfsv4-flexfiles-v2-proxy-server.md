@@ -259,8 +259,8 @@ than bolted into this document.
 **Proxy-internal features that do not surface on the
 wire.**  A proxy MAY implement content-integrity and
 error-correction layers, encryption and compression
-pass-through, log-structured write staging, sector-
-alignment normalisation, and POSIX-loopback shortcuts when
+pass-through, log-structured write staging, sector-alignment
+normalisation, and POSIX-loopback shortcuts when
 proxy and client are co-resident.  These are useful
 motivating scenarios for the move/repair vocabulary but do
 not require new protocol surface beyond what the
@@ -592,8 +592,9 @@ During a proxy operation the MDS hands out layouts that name
 the PS as a DS entry with FFV2_DS_FLAGS_PROXY set; clients
 route CHUNK I/O to that entry.  Clients that arrive
 mid-operation see the proxy layout from the start and need
-no additional signalling; clients that held an older (non-
-proxy) layout are recalled via CB_LAYOUTRECALL and reacquire.
+no additional signalling; clients that held an older
+(non-proxy) layout are recalled via CB_LAYOUTRECALL and
+reacquire.
 
 ## Message Sequence: Policy-Driven Move
 
@@ -2265,8 +2266,9 @@ the escape hatch.
     unsquashed root, even though the PS's own identity is
     typically unsquashed.
 
-3.  **Authorization remains with the MDS.**  When a client-
-    initiated operation reaches the MDS over a PS <-> MDS
+3.  **Authorization remains with the MDS.**  When a
+    client-initiated operation reaches the MDS over a PS <->
+    MDS
     session, the MDS MUST use the RPC credentials carried on
     that compound for authorization and MUST NOT substitute
     the PS's session-level identity.  Equivalently: the MDS
@@ -2315,8 +2317,9 @@ Deployment-level requirements:
    RPC-over-TLS {{RFC9289}} with mutual authentication.
    AUTH_SYS on the MDS <-> PS session is forbidden.
 
--  Deployments SHOULD audit both the PS's credential-
-   forwarding behavior (the PS logs what it forwards) and
+-  Deployments SHOULD audit both the PS's
+   credential-forwarding behavior (the PS logs what it
+   forwards) and
    the MDS's authorization checks (the MDS logs what
    principal authorized each operation).  Divergence between
    the two indicates a credential-forwarding bug or
@@ -2335,8 +2338,9 @@ What the protocol cannot defend against:
    the client is root-squashed has already violated rule 2
    above; no wire mechanism detects a PS deliberately
    mis-implementing credential forwarding.  Deployments
-   SHOULD verify their PS implementation's credential-
-   forwarding behavior through conformance testing before
+   SHOULD verify their PS implementation's
+   credential-forwarding behavior through conformance
+   testing before
    production use.
 
 Future work (noted as an Open Question below): RPCSEC_GSSv3
@@ -2431,8 +2435,9 @@ conformant with this specification.
 
 Deployments that want local enforcement need a mechanism for
 the PS to acquire the MDS's per-export client-rule list.  This
-document does not standardise such a mechanism; implementation-
-specific options include a control-plane probe-protocol
+document does not standardise such a mechanism;
+implementation-specific options include a control-plane
+probe-protocol
 extension, out-of-band admin distribution, or a future revision
 of this specification.  Any such mechanism MUST itself be authenticated
 against the PS allowlist (the rules are sensitive deployment
@@ -2614,8 +2619,9 @@ of it.
 
 1.  **Registration renewal semantics.**  Is renewal a fresh
     PROXY_REGISTRATION with the same prr_registration_id
-    (idempotent), or a separate PROXY_RENEW op (lighter-
-    weight)?  The idempotent-reregistration path keeps the op
+    (idempotent), or a separate PROXY_RENEW op
+    (lighter-weight)?  The idempotent-reregistration path
+    keeps the op
     count smaller and keeps renewal and first-time
     registration on a single code path, at the cost of
     carrying codec and affinity fields on every renewal.  A
