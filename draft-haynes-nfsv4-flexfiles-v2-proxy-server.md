@@ -1319,20 +1319,18 @@ first failure encountered:
 
 If all validations succeed, the MDS atomically:
 
--  For a `pd_status` of `NFS4_OK`: applies the migration's recorded
-   per-instance deltas to the file's active layout, removing
-   DRAINING slots, promoting INCOMING slots to STABLE, drops
-   the L3 PS-only composite, issues CB_LAYOUTRECALL on the
-   prior layout to external clients still holding cached L1
-   references, defers final removal of decommissioned mirrors
-   until all L1 holders return their layouts.  See "Layout
-   Shape During a Proxy Operation" ({{sec-layout-shape}}) for
-   the per-instance delta machinery (informative).
--  For any other `pd_status`: discards the migration's
-   recorded deltas without touching the file's active layout.
+-  For a `pd_status` of `NFS4_OK`: commits the migration --
+   promotes L2 to be the file's layout (D dropped, G promoted),
+   drops L1 and L3, issues CB_LAYOUTRECALL on the prior layout
+   to external clients still holding cached L1 references, and
+   defers final removal of the decommissioned mirror D until
+   all L1 holders return their layouts.  See
+   {{sec-atomic-commit}} for the full mechanics.
+-  For any other `pd_status`: leaves the file's layout
+   unchanged -- L1 stays in force; L2 and L3 are discarded.
    No CB_LAYOUTRECALL is needed (external clients never saw
    the post-image).  The PS owns cleanup of any half-written
-   data it placed on INCOMING DSes.
+   data it placed on the target G.
 
 In both cases the MDS retires the proxy operation; `pd_stateid`
 is thereafter invalid.
@@ -1394,12 +1392,12 @@ cannot cancel another PS's migration.
 
 #### Side effects
 
-If validation succeeds, the MDS discards the migration's
-recorded deltas, retires the proxy operation, invalidates
-`pc_stateid`, and (informatively) updates its
-operator-facing telemetry to record the cancellation.  No
-CB_LAYOUTRECALL is needed.  Side effects on the file's active
-layout mirror PROXY_DONE with a failing `pd_status`.
+If validation succeeds, layout-side effects mirror PROXY_DONE
+with a failing `pd_status` -- L1 stays in force; L2 and L3 are
+discarded; the half-filled target G is the PS's to clean up.
+The MDS retires the proxy operation, invalidates `pc_stateid`,
+and (informatively) updates its operator-facing telemetry to
+record the cancellation.  No CB_LAYOUTRECALL is needed.
 
 The distinction between PROXY_DONE(FAIL) and PROXY_CANCEL is
 purely intent / accounting: PROXY_DONE(FAIL) records that the
@@ -1497,7 +1495,7 @@ that DS rather than to any other data server in the layout.
 The PS internally dispatches reads and writes to the source
 and destination DSes.
 
-## Atomic commit on PROXY_DONE
+## Atomic commit on PROXY_DONE {#sec-atomic-commit}
 
 When the PS issues `PROXY_DONE(pd_stateid, pd_status=NFS4_OK)`,
 the MDS atomically (in one transaction):
