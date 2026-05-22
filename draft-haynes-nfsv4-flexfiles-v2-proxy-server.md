@@ -1410,54 +1410,33 @@ make any behavioral distinction on the wire.
 
 # Multi-PS Assignment Fan-out {#sec-multi-ps-fanout}
 
-`[[REVISED 2026-04-26 -- new normative section.]]`
-
 When multiple PSes are registered against the same MDS, the
-MDS coordinates assignment fan-out per the following rules:
+MDS coordinates assignment fan-out under one hard invariant:
+at any time, at most one migration MUST be in flight for a
+given `(pa_file_fh, target_dstore)` pair.  The MDS MUST NOT
+assign a migration whose `(pa_file_fh, target_dstore)` matches
+that of an in-flight migration.
 
-1. **At most one in-flight migration per `(pa_file_fh,
-   target_dstore)` pair at any time.**  This is a HARD
-   invariant.  The MDS keys its in-flight migrations registry
-   on this pair and MUST NOT assign a migration whose key
-   matches a still-in-flight entry.
+How the MDS chooses among eligible PSes -- by load, locality,
+fault domain, capability match, or any combination -- is an
+implementation matter.  The protocol constrains only the
+outcome: the PS that receives the assignment is registered at
+delivery time, and the `(pa_file_fh, target_dstore)` invariant
+holds.
 
-2. **PS selection: round-robin within the registered set.**
-   The MDS maintains an ordered list of currently-registered
-   PSes (insertion order).  For each new assignment, walk the
-   list starting after the last PS assigned; pick the first PS
-   whose in-flight migration count is below a per-PS cap
-   (default 8, configurable).  If no PS qualifies, the
-   assignment stays in the queue; the next PS poll re-tries
-   the walk.
+When a registered PS loses its session -- its lease expires,
+or a competing PS takes its registration slot in a squat --
+the MDS MUST treat each migration the PS had in flight as if
+PROXY_DONE(FAIL) had been issued: L1 stays in force, L2 and
+L3 are discarded.  The MDS MAY then reassign the work to
+another eligible PS; the `(pa_file_fh, target_dstore)`
+invariant continues to hold across reassignment.
 
-3. **Cross-PS reassignment on lease expiry.**  If a PS holding
-   in-flight migrations loses its session (lease expiry, squat
-   from a competing PS), the MDS:
-
-   - Internally treats the abandoned migrations as
-     PROXY_DONE(FAIL): commits L1, drops L2/G half-fills.
-   - Re-queues each abandoned migration as a fresh assignment.
-   - On reassignment, the per-`(pa_file_fh, target_dstore)`
-     invariant catches any duplicate (the new PS picks a fresh
-     target if the old target was contaminated; the autopilot
-     decides).
-
-4. **PS Identity continuity across reconnects.**  A PS that
-   reconnects with the same `client_owner4` (recovers the same
-   clientid via EXCHANGE_ID) retains ownership of its
-   in-flight migrations.  No new assignment necessary; the PS
-   reclaims its layouts via the recovery path in {{sec-mds-recovery}}.
-
-The per-PS in-flight cap exists to prevent one PS monopolising
-the queue while others sit idle.  It also bounds the
-PROXY_PROGRESS reply size for the assignment-fanout amplification
-case (e.g., MDS has thousands of files to migrate; without a
-cap, the first PS poll receives all of them).
-
-Implementations SHOULD include a TSan-style invariant test that
-confirms, under concurrent PROXY_PROGRESS polls from N PSes,
-the MDS never assigns two records with the same `(pa_file_fh,
-target_dstore)` key.
+A PS that reconnects with the same `client_owner4`, and so
+recovers the same `clientid` via EXCHANGE_ID, retains
+ownership of its in-flight migrations; no reassignment is
+needed.  The PS reclaims its layouts via the MDS-recovery
+path in {{sec-mds-recovery}}.
 
 # Layout Shape During a Proxy Operation {#sec-layout-shape}
 
