@@ -613,7 +613,7 @@ quiesced case they are recalled before the PS work starts.
   | <--- reg_id, granted_lease ---- |
   |                                 |
   | ---- PROXY_PROGRESS ----------> | (heartbeat poll)
-  | <--- NFS4_OK, ppr_assignments  | (zero or more entries; one
+  | <--- NFS4_OK, ppr_assignments   | (zero or more entries; one
   |       includes MOVE assignment  |  delivers the MOVE work)
   |                                 |
   | ---- OPEN(file_FH) -----------> | (PS picks up the work)
@@ -693,8 +693,8 @@ PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
   |                                 | <-- (cancel decision)
   |                                 |
   | ---- PROXY_PROGRESS ----------> | (next heartbeat poll)
-  | <--- NFS4_OK, ppr_assignments  | (CANCEL_PRIOR for the
-  |       includes CANCEL_PRIOR    |  same file_FH/target)
+  | <--- NFS4_OK, ppr_assignments   | (CANCEL_PRIOR for the
+  |       includes CANCEL_PRIOR     |  same file_FH/target)
   |                                 |
   |  [PS drops the prior assignment |
   |   from its in-flight queue;     |
