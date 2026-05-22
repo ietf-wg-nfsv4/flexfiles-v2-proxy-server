@@ -1460,7 +1460,7 @@ On a LAYOUTGET, the MDS chooses one of three outcomes:
    the named DS; the PS internally dispatches reads and
    writes to the source and destination DSes.
 
--  An error from the codec-negotiation path (see
+-  `NFS4ERR_CODING_NOT_SUPPORTED` (see
    {{I-D.haynes-nfsv4-flexfiles-v2}}), when the client's
    coding-type support set does not include the file's coding
    and no registered PS can translate.
