@@ -844,9 +844,9 @@ NFSv4 stateid seqid semantics in {{RFC8881}} S8.2.4:
 Possession of a proxy_stateid is not sufficient to drive
 PROXY_DONE or PROXY_CANCEL on the corresponding migration.
 The MDS additionally validates that the calling session's
-registered-PS identity matches the migration record's
-recorded owner (see the "Authorization" subsection of
-{{sec-PROXY_DONE}} for the full normative rule).  Without
+registered-PS identity owns that migration (see the
+"Authorization" subsection of {{sec-PROXY_DONE}} for the
+full normative rule).  Without
 this check, a PS that learned another PS's proxy_stateid
 (through a packet capture, a leaked log, or any other channel)
 could drive its PROXY_DONE / PROXY_CANCEL on a migration it
@@ -1216,11 +1216,10 @@ first failure encountered:
 2. `pd_stateid.other` was minted in the current
    (server_state, boot_seq) tuple.  A proxy_stateid minted in
    a prior boot returns `NFS4ERR_STALE_STATEID`.
-3. A migration record exists in this boot whose recorded
-   proxy_stateid.other matches `pd_stateid.other`.  Otherwise:
-   `NFS4ERR_BAD_STATEID`.
-4. The migration record's recorded registered-PS identity
-   matches the calling session's registered-PS identity.  The
+3. `pd_stateid.other` identifies a proxy operation currently
+   in flight at the MDS.  Otherwise: `NFS4ERR_BAD_STATEID`.
+4. The proxy operation identified by `pd_stateid` is owned by
+   the calling session's registered-PS identity.  The
    identity captured at PROXY_REGISTRATION time -- the
    `prr_registration_id` if non-empty, or the matched GSS
    principal / mTLS fingerprint otherwise -- is the
@@ -1230,9 +1229,9 @@ first failure encountered:
    reconnects with a fresh EXCHANGE_ID but the same
    `prr_registration_id` retains authority over its in-flight
    migrations.  Mismatch returns `NFS4ERR_PERM`.
-5. The current filehandle (set by the preceding PUTFH) matches
-   the migration record's recorded `pa_file_fh`.  Otherwise:
-   `NFS4ERR_BAD_STATEID`.
+5. The current filehandle (set by the preceding PUTFH) is the
+   `pa_file_fh` of the proxy operation identified by
+   `pd_stateid`.  Otherwise: `NFS4ERR_BAD_STATEID`.
 6. `pd_stateid.seqid` matches the most recently issued seqid
    for this proxy_stateid (per {{RFC8881}} S8.2.4 stateid
    sequence semantics).  Otherwise: `NFS4ERR_OLD_STATEID`.
@@ -1255,8 +1254,8 @@ If all validations succeed, the MDS atomically:
    the post-image).  The PS owns cleanup of any half-written
    data it placed on INCOMING DSes.
 
-In both cases the migration record is unhashed and freed; the
-proxy_stateid is retired.
+In both cases the MDS retires the proxy operation; `pd_stateid`
+is thereafter invalid.
 
 Atomicity is critical: external client traffic must transition
 cleanly across this op; either the per-instance deltas commit
@@ -1308,16 +1307,16 @@ in-flight migration record only.
 
 The same priority-ordered validation as PROXY_DONE
 ({{sec-PROXY_DONE}}) applies, with `pc_stateid` substituted
-for `pd_stateid`.  In particular, the migration record's
-recorded registered-PS identity MUST match the caller's, or
-the MDS returns `NFS4ERR_PERM`; a PS cannot cancel another
-PS's migration.
+for `pd_stateid`.  In particular, the registered-PS identity
+that owns the proxy operation identified by `pc_stateid` MUST
+match the caller's, or the MDS returns `NFS4ERR_PERM`; a PS
+cannot cancel another PS's migration.
 
 #### Side effects
 
 If validation succeeds, the MDS discards the migration's
-recorded deltas, unhashes and frees the migration record,
-retires the proxy_stateid, and (informatively) updates its
+recorded deltas, retires the proxy operation, invalidates
+`pc_stateid`, and (informatively) updates its
 operator-facing telemetry to record the cancellation.  No
 CB_LAYOUTRECALL is needed.  Side effects on `i_layout_segments`
 mirror PROXY_DONE with `pd_status != NFS4_OK`.
@@ -1961,8 +1960,8 @@ After detecting session loss, the PS:
      the previously-retained layout stateid as the reclaim key.
      The MDS validates that:
      - The session's client has `nc_is_registered_ps == true`
-     - An in-flight migration record exists for this
-       `(clientid, pa_file_fh, layout_stateid)` triple
+     - The MDS recognizes an in-flight proxy operation for
+       this `(clientid, pa_file_fh, layout_stateid)` triple
      - The reclaim falls within the server grace window
      and re-grants the L3 composite layout with a fresh stateid
      (the stateid the PS supplied is consumed; a new one is
