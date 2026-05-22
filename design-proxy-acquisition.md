@@ -1,15 +1,23 @@
 # Design change: proxy acquisition, OPEN, and layout gating
 
-**Status:** Recorded (v2, revised after the 2026-05-22 protocol-soundness
-review). Ready to apply to
+**Status:** Recorded (v3, 2026-05-22). Two independent protocol-soundness
+reviews; v3 incorporates both. Ready to apply to
 `draft-haynes-nfsv4-flexfiles-v2-proxy-server.md`.
-**Date:** 2026-05-22
-**Scope:** How a client reaches a proxied file; how a PS is bound to a
-file; the two filehandles involved and how each is conveyed; how OPEN
-and LAYOUTGET are disambiguated and gated while a proxy is active.
+**Scope:** how a client reaches a proxied file; how a PS binds to a
+file; the two filehandles; how OPEN and LAYOUTGET are gated; and the
+availability/durability properties of routing I/O through a PS.
 
-This is one structural change; the pieces are interdependent and apply
-together. §8 (assimilation) is explicitly deferred to a later change.
+Two regimes run through this whole change and must be kept apart:
+
+- **Migration** -- MOVE and REPAIR. The PS runs a *copier*: it reads a
+  source mirror set and writes a target mirror set.
+- **Translation** -- codec translation for codec-ignorant clients. The
+  PS is a live *transcoder*: it decodes on read and encodes on write,
+  in place. Nothing is copied; the file's storage geometry is stable.
+
+The presence or absence of a copier is the dividing line. It is why
+migration needs the Single-Layout Model (§4.2) and translation does
+not (§4.3). Assimilation is deferred (§9).
 
 ## 1. Origin
 
@@ -20,255 +28,260 @@ The review began at one sentence in the Introduction:
 > data-server flag (FFV2_DS_FLAGS_PROXY) -- and route their I/O
 > through it while it is active.
 
-Pulling on it exposed several under-specified or incorrect mechanisms.
-
 ## 2. Problems in the current draft
 
-- **P1** — Only one access path is described. A non-pNFS client (NFSv3)
+- **P1** -- only one access path is described; a non-pNFS client
   reaches the PS directly and never sees a layout.
-- **P2** — "Route their I/O through it" overstates the PS role. A
-  codec-capable client's writes are client-driven to the real mirror
-  set; only a codec-incapable client must write through the PS.
-- **P3** — `FFV2_DS_FLAGS_PROXY` has no consumer for move/repair: a pNFS
-  client does I/O, handles errors and recalls identically whether its
-  DS is real or a proxy.
-- **P4** — "No new claim type" is not implementable: `nc_is_registered_ps`
-  cannot distinguish the PS's proxy OPEN from a racing or unrelated
-  OPEN on the same session, and the PS asserts no intent.
-- **P5** — Filehandle handling is unspecified/conflated (see §3).
-- **P6** — The proxy_stateid's role was left vague enough that the first
-  design draft over-loaded it (see §4.4).
+- **P3** -- `FFV2_DS_FLAGS_PROXY` has no consumer (see §4.7).
+- **P4** -- "No new claim type" is not implementable:
+  `nc_is_registered_ps` cannot distinguish the PS's proxy OPEN from a
+  racing OPEN.
+- **P5** -- filehandle handling is conflated (see §3).
+- **P6** -- the proxy_stateid's role was left vague (see §4.6).
+- **P2 is RETRACTED.** P2 read "route their I/O through it overstates
+  the PS role." It does not. During a migration, routing all client
+  I/O through the PS *is* the design, and the correct one (§4.2).
 
 ## 3. Two filehandles -- keep them distinct
 
-The single biggest correction from the review. There are **two**
-filehandles for a proxied file and they must never be conflated:
+There are two filehandles for a proxied file:
 
-- **FH-mds** — the file's filehandle *on the MDS*. The MDS mints it; it
-  is the existing `pa_file_fh` carried in the PROXY_PROGRESS work
-  assignment. The PS uses FH-mds only to talk to the MDS (PUTFH, OPEN,
-  LAYOUTGET against the MDS). The PS treats it as opaque.
-- **FH-ps** — the filehandle under which the *PS* serves the file to
-  clients: the Scenario-A LOOKUP result and the Scenario-B layout's
-  DS-entry filehandle. Only the PS can mint it (filehandle format is
-  private to the server that decodes it, RFC 8881 §4.2.3). The PS
-  conveys FH-ps to the MDS; the MDS treats it as opaque and copies it
-  verbatim into the proxy layout it hands to clients.
-
-The MDS mints FH-mds; the PS mints FH-ps. Neither can mint the other's.
+- **FH-mds** -- the file's filehandle on the MDS. The MDS mints it; it
+  is the existing `pa_file_fh` in the PROXY_PROGRESS assignment. The PS
+  uses it only to talk to the MDS (PUTFH, OPEN, LAYOUTGET).
+- **FH-ps** -- the filehandle under which the PS serves the file to
+  clients: the layout's DS-entry filehandle, and the LOOKUP result a
+  non-pNFS client obtains from the PS. Only the PS can mint it
+  (filehandle format is private to the decoding server, RFC 8881
+  §4.2.3); the PS conveys it to the MDS, which treats it as opaque.
 
 ## 4. Proposed design
 
-### 4.1 Three client access modes
+### 4.1 Reaching a proxied file
 
-A client reaches a proxied file in one of three ways:
+A client reaches the PS by one of two front doors, independent of
+regime:
 
 - **Direct (non-pNFS).** An NFSv3 client (or any client that cannot do
   pNFS layouts) contacts the PS as an ordinary NFS server: LOOKUP,
-  obtain FH-ps, do NFS READ/WRITE. No layout, no flag. The client never
-  "discovers proxying".
-- **Proxy layout (codec-incapable pNFS client).** A pNFS client that
-  cannot speak the file's codec gets an FFv2 layout whose single mirror
-  names the PS (addressed by FH-ps); it does DS I/O to the PS.
-- **Real-DS layout (codec-capable pNFS client).** A pNFS client that
-  *can* encode the file is not proxied at the layout level at all.
-  During a migration it gets the composite real-DS layout the draft
-  already defines (the L1/L2/L3 external view): it reads and does
-  client-driven mirrored writes to the real DSes. The PS does not
-  appear in this client's layout; the PS is simply another concurrent
-  writer to the same DSes.
+  obtain FH-ps, do NFS READ/WRITE.
+- **pNFS layout.** A pNFS client receives a layout whose DS entry names
+  the PS (addressed by FH-ps) and does DS I/O to the PS.
 
-The original sentence described only the middle case and wrongly
-implied all clients route I/O through the PS (P1, P2).
+These are two front doors to the same PS. The access path is a
+discovery detail and MUST NOT change data-path semantics.
 
-### 4.2 Acquisition flow
+### 4.2 Migration: the Single-Layout Model
 
-1. **PROXY_REGISTRATION** — the PS registers; it joins the registered
-   set. Successful registration also implies the MDS supports
-   `CLAIM_PROXY` (see §4.3).
-2. **MDS preparation.** The MDS recalls all outstanding pNFS layouts
-   for the file (CB_LAYOUTRECALL) **and waits for completion** — every
-   holder has LAYOUTRETURNed, or the MDS has revoked the stragglers
-   (RFC 8881 §12.5.5.2) — *before* it publishes the in-flight migration
-   record. Issuing the recall is not enough; an un-returned layout
-   still authorises client DS I/O.
-3. **PROXY_PROGRESS assignment.** The PS polls; the MDS selects a PS and
-   returns a work assignment carrying the file (`pa_file_fh` = FH-mds),
-   the work type, and a freshly minted `proxy_stateid` (§4.4).
-4. **OPEN(CLAIM_PROXY)** — see §4.3.
-5. **LAYOUTGET** — the PS obtains the composite layout the ordinary
-   way: an ordinary LAYOUTGET using the all-zero special layout
-   stateid (bootstrap) or its open stateid from step 4. The MDS knows
-   the request is for the composite layout because this clientid holds
-   an in-flight migration record for the file.
+During a MOVE or REPAIR, **every** client of the file routes all I/O
+through the PS -- whichever front door it used. The PS is the sole
+writer to the source and target mirror sets.
 
-### 4.3 CLAIM_PROXY
+This is required for correctness. The PS runs a copier. If clients
+wrote the source mirror directly while the PS also wrote it, there are
+two uncoordinated writers: the copier can read range R, a client can
+then overwrite R, and the copier can then write its stale R back --
+silently losing the client's write. With the PS as the sole writer it
+serializes client writes against its own copy operations; the race
+cannot arise. (The draft's per-instance delta model, which would be
+the alternative mediation, is marked informative and "not exercised by
+the wire ops in this revision" -- so Single-Layout is the only sound
+normative shape.)
 
-`OPEN` gains a new `open_claim_type4` enumerant, `CLAIM_PROXY`, and an
-`open_claim4` union arm carrying:
+The MDS keeps three logical layout records during a migration; only
+L3 is client-facing -- see §8.
+
+### 4.3 Translation: the mixed model
+
+Codec translation copies nothing. The file stays in its native
+coding; there is no copier and therefore no stale-overwrite race. The
+same file is consequently served two ways at once:
+
+- a **codec-capable** client gets a normal layout naming the real
+  DSes and does I/O directly; the PS is not involved;
+- a **codec-incapable** client gets a layout naming the PS, or reaches
+  the PS directly; the PS transcodes.
+
+This coexistence is correct precisely because there is no copier; the
+draft already describes it and it stands.
+
+### 4.4 Writes
+
+Migration: all client writes go through the PS (§4.2). Translation:
+codec-capable clients write the real DSes directly; codec-incapable
+clients write through the PS, which encodes on their behalf.
+
+### 4.5 The CLAIM_PROXY open claim
+
+Regime-independent: a PS binds to a file the same way for migration
+and translation. `OPEN` gains a new claim, `CLAIM_PROXY`:
 
 ```
+const CLAIM_PROXY = 7;          /* extends open_claim_type4 */
 struct open_claim_proxy4 {
-        proxy_stateid4  ocp_proxy_stateid;  /* assignment correlator */
-        nfs_fh4         ocp_ps_fh;          /* FH-ps the PS will serve */
+        proxy_stateid4  ocp_proxy_stateid;   /* assignment correlator */
+        nfs_fh4         ocp_ps_fh;           /* FH-ps */
 };
+/* open_claim4 gains: case CLAIM_PROXY: open_claim_proxy4 ocp_proxy; */
 ```
 
-Properties:
+- Filehandle-based, open-existing: `PUTFH(FH-mds); OPEN(CLAIM_PROXY)`,
+  no directory or name, like `CLAIM_FH`; never with `OPEN4_CREATE`.
+- `ocp_proxy_stateid` is the explicit, generation-specific correlator:
+  it proves this OPEN is the proxy OPEN for a specific assignment, so
+  the MDS never infers proxy intent from `(session, FH)` (fixes P4).
+- `ocp_ps_fh` carries FH-ps, bound atomically with the proxy OPEN.
+- MDS validation: the stateid is valid, names an outstanding
+  assignment, the assignment was made to the calling clientid, and the
+  current filehandle is that assignment's file. Failure draws
+  `NFS4ERR_BAD_STATEID`.
+- Discovery: a PS MUST NOT issue `OPEN(CLAIM_PROXY)` without a
+  successful PROXY_REGISTRATION; registration success is the signal
+  that the MDS implements the extension.
+- Results unchanged: an ordinary open stateid, and `open_delegation4`
+  the MDS MUST set to `OPEN_DELEGATE_NONE`. Share
+  `OPEN4_SHARE_ACCESS_BOTH` / `OPEN4_SHARE_DENY_NONE`.
+- Replay: no special handling -- ordinary OPEN semantics (session
+  replay cache for retransmits; open-owner/seqid for re-OPENs).
 
-- **Filehandle-based, open-existing.** Like `CLAIM_FH`, it operates on
-  the current filehandle: the PS does `PUTFH(FH-mds); OPEN(CLAIM_PROXY)`
-  — no parent directory, no component name. (This is also why the old
-  `CLAIM_NULL` framing never fit: `CLAIM_NULL` needs a directory FH and
-  a name, and the PS has only the file's FH-mds.) `CLAIM_PROXY` MUST
-  NOT be combined with `OPEN4_CREATE`.
-- **`ocp_proxy_stateid`** is the explicit, generation-specific
-  *correlator*: it proves this OPEN is the proxy OPEN for a specific
-  assignment, so the MDS never infers proxy intent from
-  `(session, FH)`. This is the fix for P4.
-- **`ocp_ps_fh`** carries FH-ps in the operand so registering it is
-  atomic with the proxy binding.
-- **MDS validation.** The MDS MUST verify: `ocp_proxy_stateid` is valid,
-  names an outstanding assignment, that assignment was made to this
-  clientid/session, and the current filehandle is the assignment's
-  file. On failure: `NFS4ERR_BAD_STATEID` for a bad stateid; the
-  assignment/FH-mismatch error to be chosen when drafting.
-- **Discovery / compatibility.** A PS MUST NOT issue `OPEN(CLAIM_PROXY)`
-  without a successful PROXY_REGISTRATION; registration success *is*
-  the signal that the MDS supports the claim type (a pre-`CLAIM_PROXY`
-  MDS rejects PROXY_REGISTRATION, op 93, first, so the PS never reaches
-  the OPEN).
-- **Results unchanged.** `OPEN(CLAIM_PROXY)` returns the standard `OPEN`
-  reply: an ordinary open stateid, and `open_delegation4` which the MDS
-  **MUST** set to `OPEN_DELEGATE_NONE`. The open stateid is used for
-  CLOSE and may bootstrap the PS's LAYOUTGET; it is an ordinary stateid
-  with its own `other`.
-- **Share semantics.** `OPEN4_SHARE_ACCESS_BOTH` / `OPEN4_SHARE_DENY_NONE`.
-- **Replay.** `CLAIM_PROXY` defines *no* special replay behaviour. A
-  retransmit is absorbed by the NFSv4.1 session replay cache; a genuine
-  repeated OPEN by the same open-owner is an ordinary share-state
-  operation, exactly as for any other claim type.
+### 4.6 proxy_stateid -- a control-plane token only
 
-### 4.4 proxy_stateid -- a control-plane token only
+Minted by the MDS, fresh per assignment, bound to the assigned PS's
+clientid, delivered in the PROXY_PROGRESS assignment. Used as the
+`CLAIM_PROXY` correlator and in PROXY_DONE / PROXY_CANCEL. It is NOT a
+layout stateid and NOT a LAYOUTGET argument; it stays disjoint from
+the layout value space. The PS obtains L3 with an ordinary LAYOUTGET;
+the MDS serves L3 because the calling clientid holds an in-flight
+migration record for the file.
 
-The `proxy_stateid` is minted by the MDS, fresh per assignment, bound to
-the assigned PS's clientid, and delivered in the PROXY_PROGRESS
-assignment. Its uses are: the `CLAIM_PROXY` correlator (§4.3), and
-PROXY_DONE / PROXY_CANCEL.
+### 4.7 Layout gating, and FFV2_DS_FLAGS_PROXY
 
-It is **not** a layout stateid and **not** a LAYOUTGET argument. It
-remains disjoint from the layout value space (a non-PROXY op presenting
-it still gets `NFS4ERR_BAD_STATEID`). The earlier idea of presenting it
-to LAYOUTGET, or of a "stateid chain" keyed on a shared `other`, is
-dropped: RFC 8881 §8.2 makes `other` the field that *distinguishes*
-state objects, so it cannot be shared across clients' layout stateids.
+While an in-flight migration record exists for file F, every
+client-facing layout the MDS issues for F names the PS; the MDS
+refuses to honour a stale pre-migration layout stateid for F. Each
+client's layout stateid keeps its own distinct `other` (RFC 8881
+§8.2); there is no shared-`other` chain.
 
-### 4.5 Layout gating via the in-flight migration record
+`FFV2_DS_FLAGS_PROXY` is retained, but recorded as a **non-load-bearing
+marker**: no client, MDS, or PS code path depends on it. The client
+does DS I/O to whatever its layout names; the MDS issues layouts from
+its own state; the PS knows its work from its assignment. What
+actually distinguishes migration from translation, and tells each
+actor what to do, is MDS+PS control-plane state -- never a layout
+flag.
 
-While an in-flight migration record exists for file F (keyed on
-clientid + file_FH, as the draft already does):
+### 4.8 The NFS4ERR_DELAY window (migration setup)
 
-- every layout the MDS issues for F is proxy-shaped — a 1-mirror PS
-  layout for a codec-incapable client, the composite real-DS layout for
-  a codec-capable client (§4.1);
-- the MDS refuses to honour a stale pre-proxy layout stateid for F and
-  will not issue a non-proxy layout for F;
-- each client's layout stateid keeps its own distinct `other`, per
-  RFC 8881 §8.2. There is no shared-`other` chain.
+From assignment until the PS's `OPEN(CLAIM_PROXY)` registers FH-ps,
+the MDS cannot build the client-facing layout, so it answers **every**
+pNFS LAYOUTGET for the file with `NFS4ERR_DELAY` -- during a migration
+there is no real-DS layout to fall back to. The window MUST be
+bounded: if the assigned PS does not `OPEN(CLAIM_PROXY)` within a
+deadline (tied to the PS registration lease), the MDS reassigns or
+abandons the assignment and stops returning `NFS4ERR_DELAY`. An
+unbounded DELAY is a client hang. (Translation, being a standing
+arrangement rather than a discrete operation, has no such window.)
 
-PROXY_DONE retires the migration record; the MDS then recalls and
-reissues normal layouts.
+### 4.9 Write durability at the PS
 
-### 4.6 The NFS4ERR_DELAY window
+The PS MUST NOT acknowledge a client write until every mirror in the
+target set is durable. This closes the torn-write-on-crash hole: a PS
+crash cannot leave a client write acknowledged but applied to only
+part of the mirror set. An acknowledged write is durable everywhere.
 
-From assignment until the PS's `OPEN(CLAIM_PROXY)` registers FH-ps, the
-MDS cannot build a proxy layout, so it answers codec-incapable-client
-LAYOUTGET with `NFS4ERR_DELAY`; clients retry. The gate is on the
-LAYOUTGET path only — direct (non-pNFS) clients are never gated by it,
-and the PS may already be serving them.
+### 4.10 Fencing the outgoing PS on reassignment
 
-The window MUST be bounded. If the assigned PS does not issue
-`OPEN(CLAIM_PROXY)` within a deadline (tied to the PS's registration
-lease — a PS that misses it is also missing PROXY_PROGRESS
-heartbeats), the MDS reassigns or abandons the assignment and stops
-returning `NFS4ERR_DELAY`; with no PS yet bound it may fall back to a
-normal pre-proxy layout. An unbounded `NFS4ERR_DELAY` is a client hang.
+On PS reassignment the MDS MUST fence the outgoing PS -- REVOKE_STATEID
+of its L3 layout stateid, and/or DS-side fencing -- before the
+replacement PS's layout goes live. Otherwise a slow write from the old
+PS can race the new PS: a two-PS instance of the very write race
+Single-Layout exists to prevent.
 
-### 4.7 Remove FFV2_DS_FLAGS_PROXY
+### 4.11 Availability and throughput
 
-With the migration record as the gate (§4.5) and an explicit work
-assignment, nothing consults `FFV2_DS_FLAGS_PROXY`; it is removed.
-"Proxied" is MDS control-plane state. The codec-translation text that
-currently uses the flag as a per-request layout discriminator is
-restated: a codec-incapable client simply receives a layout that names
-the PS (addressed by FH-ps) under a codec it supports — the layout
-shape itself carries the distinction, no flag needed.
+During a migration the PS is a bounded data-path single point of
+failure and a throughput funnel: all client I/O for the file, plus the
+PS's own copy traffic, traverse one PS, and the usual FlexFiles
+mitigation (client-side mirroring across DSes) is unavailable because
+the client sees one DS, the PS. This is inherent to Single-Layout and
+cannot be designed away; the draft MUST state it in operational
+considerations. It argues against migrating very large files without
+the deferred multi-proxy / partial-range work.
 
-### 4.8 Writes
-
-A codec-capable client writes to the real mirror set directly
-(client-driven FlexFiles mirroring); the PS is not a write target for
-it. A codec-incapable client (direct, or codec-incapable pNFS) writes
-through the PS, which encodes on its behalf. State this per-case, not
-as a blanket "route I/O through the PS".
-
-## 5. End-to-end sequence
+## 5. End-to-end sequence (migration)
 
 ```
 MDS: CB_LAYOUTRECALL of outstanding pNFS layouts for the file
 MDS: wait for LAYOUTRETURN / revoke stragglers          <-- completion gate
 MDS: publish in-flight migration record; mint proxy_stateid
 MDS: select PS; PROXY_PROGRESS assignment -> {FH-mds, work type, proxy_stateid}
-MDS: codec-incapable-client LAYOUTGET -> NFS4ERR_DELAY   (window opens)
+MDS: every pNFS LAYOUTGET for the file -> NFS4ERR_DELAY   (window opens)
 PS : PUTFH(FH-mds); OPEN(CLAIM_PROXY{proxy_stateid, FH-ps})
 MDS: validate; record FH-ps; return open stateid + OPEN_DELEGATE_NONE
-PS : LAYOUTGET (ordinary; all-zero or open stateid) -> composite layout
-MDS: build proxy layouts; LAYOUTGET DELAY lifts          (window closes)
-...  proxy active: layout issuance gated by the migration record
+PS : LAYOUTGET (ordinary) -> L3 composite layout
+MDS: build client layouts naming the PS; DELAY lifts      (window closes)
+...  proxy active: PS is sole writer; acks only after target durable
 PS : PROXY_DONE
 MDS: retire migration record; recall + reissue normal layouts
 ```
 
-If the PS never reaches `OPEN(CLAIM_PROXY)`, the §4.6 deadline fires:
-the MDS reassigns/abandons and stops the `NFS4ERR_DELAY`.
+If the PS never reaches `OPEN(CLAIM_PROXY)`, the §4.8 deadline fires.
 
-## 6. Decisions recorded (former open items O1-O4)
+## 6. Decisions recorded
 
-- **O1** — Three distinct stateids, no chain: the `OPEN(CLAIM_PROXY)`
-  open stateid (ordinary; CLOSE + LAYOUTGET bootstrap), the
-  `proxy_stateid` (control-plane token), the composite-layout stateid
-  (ordinary layout stateid the PS persists for reclaim). None share
-  `other`.
-- **O2** — `OPEN_DELEGATE_NONE` on a `CLAIM_PROXY` open is **MUST**.
-- **O3** — The `CLAIM_PROXY` operand is `open_claim_proxy4`
-  (proxy_stateid + FH-ps), one struct, conveyed in the OPEN.
-- **O4** — Assimilation (§8) ships as a **separate, later change**.
+- **O1** -- three distinct stateids, no chain: the `OPEN(CLAIM_PROXY)`
+  open stateid, the control-plane `proxy_stateid`, the L3 layout
+  stateid. None share `other`.
+- **O2** -- `OPEN_DELEGATE_NONE` on a `CLAIM_PROXY` open is a MUST.
+- **O3** -- the `CLAIM_PROXY` operand is `open_claim_proxy4`
+  (proxy_stateid + FH-ps), one struct in the OPEN.
+- **O4** -- assimilation ships as a separate later change (§9).
+- **B3** -- write durability: ack only after the target set is durable
+  (§4.9).
+- **Migration vs translation** -- Single-Layout is a property of
+  migration only; translation runs the mixed model (§4.2, §4.3).
 
 ## 7. Draft sections affected
 
-- Introduction — the "Clients discover…" sentence: rewrite for the
-  three access modes (§4.1) and the writes rule (§4.8).
-- "No new claim type" subsection (under "Layout Shape During a Proxy
-  Operation") — retitle and invert: there IS a new claim type (§4.3).
-- MDS-recovery section — it also asserts "no new claim type"; reconcile.
-- proxy_stateid section — state it as assignment-issued and
-  control-plane-only; keep it disjoint from the layout value space
-  (§4.4).
-- PROXY_PROGRESS — the assignment record carries `pa_file_fh` (FH-mds,
-  already present), work type, and proxy_stateid. No FH-ps field is
-  added here; FH-ps arrives via `OPEN(CLAIM_PROXY)`.
-- OPEN section — add `CLAIM_PROXY` and `open_claim_proxy4` (§4.3).
-- Layout sections (L1/L2/L3, "proxy DS entry") — reconcile with the
-  three access modes; gate via the migration record (§4.5).
-- Data-server flags — remove `FFV2_DS_FLAGS_PROXY`; restate the
-  codec-translation discriminator (§4.7).
+- Introduction -- the "Clients discover…" sentence: rewrite for the two
+  front doors and the migration/translation regimes.
+- "No new claim type" subsection -- already retitled "The CLAIM_PROXY
+  open claim" with the XDR (applied).
+- MDS-recovery section -- reconcile its "no new claim type" assertion.
+- proxy_stateid section -- state it assignment-issued and
+  control-plane-only.
+- PROXY_PROGRESS -- assignment record carries `pa_file_fh` (FH-mds,
+  present), work type, proxy_stateid.
+- Layout Shape section -- the "Single-Layout Model" subsection is
+  correct for migration and stays; the "Two-Layout State" subsection's
+  "L1 -- the active layout for external clients" wording is wrong and
+  is corrected per §8; the "D in M2 … concurrent external client
+  writes" rationale and the "Late writes during the swap window"
+  subsection are rewritten (no client ever writes the source mirror
+  directly during a migration -- the PS does).
+- PS Failure and Recovery -- add write-durability (§4.9) and
+  outgoing-PS fencing (§4.10).
+- Operational/availability text -- add the SPOF and throughput
+  disclosure (§4.11).
+- `FFV2_DS_FLAGS_PROXY` is retained; the prose around it must not
+  present it as load-bearing (§4.7).
 
-## 8. Deferred: assimilation as a type-migration mode
+## 8. MDS layout bookkeeping during a migration
 
-Recorded for continuity; NOT part of this change. Assimilation
-(plain file -> RS-coded) is mechanically a type migration ("layout
-transition"), not a separate operation. The capturable property is
-source mutability for the duration: an immutable-source assimilation
-needs no write fan-out and no copier-vs-write convergence; a
-mutable-source migration does. This will be a separate change once the
-draft's per-instance delta model is normative.
+The MDS keeps three logical layout records: L3 is the PS's composite
+working view (read-source set M1, write-target set M2) and is the only
+record that backs a client-facing layout -- every client of the file
+during the migration is served a layout naming the PS, backed by L3.
+L1 and L2 are **MDS-internal bookkeeping** -- the pre-migration mirror
+set and the post-migration mirror set -- used to construct L3 and to
+know what to commit at PROXY_DONE. They are not client-facing layouts.
+The draft's current "L1 -- the active layout for external clients"
+wording is the error and is corrected.
+
+## 9. Deferred: assimilation as a type-migration mode
+
+Recorded for continuity; not part of this change. Single-Layout's
+single-writer property is itself the mutable-source convergence
+mechanism, so assimilation of a mutable source no longer depends on
+the per-instance delta model becoming normative for write
+correctness. Assimilation will be a separate change.
