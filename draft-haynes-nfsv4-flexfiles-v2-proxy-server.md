@@ -610,7 +610,7 @@ quiesced case they are recalled before the PS work starts.
   | <--- NFS4_OK, ppr_assignments   | (zero or more entries; one
   |       includes MOVE assignment  |  delivers the MOVE work)
   |                                 |
-  | ---- OPEN(file_FH) -----------> | (PS picks up the work)
+  | ---- OPEN(pa_file_fh) --------> | (PS picks up the work)
   | ---- LAYOUTGET (L3 composite) > |
   |                                 |
   |  [PS drives move: reads source  |
@@ -624,7 +624,7 @@ quiesced case they are recalled before the PS work starts.
   |  ...                            |
   |                                 |
   | ---- SEQUENCE                   |
-  |      PUTFH(file_FH)             |
+  |      PUTFH(pa_file_fh)          |
   |      LAYOUTRETURN(L3_stid)      |
   |      PROXY_DONE(L3_stid, OK) -> | (terminal: commit L1 -> L2)
   | <--- NFS4_OK ------------------ |
@@ -662,7 +662,7 @@ The MDS may decide to retract an assignment.  Two cases:
 
 1. **Assignment not yet acknowledged by the PS.**  The MDS
    includes a `PROXY_OP_CANCEL_PRIOR` assignment in the next
-   PROXY_PROGRESS reply, naming the same `(file_FH,
+   PROXY_PROGRESS reply, naming the same `(pa_file_fh,
    target_dstore_id)` pair as the prior MOVE / REPAIR
    assignment.  The PS, which has not yet OPEN'd the file,
    simply drops the prior assignment from its in-flight queue.
@@ -688,7 +688,7 @@ PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
   |                                 |
   | ---- PROXY_PROGRESS ----------> | (next heartbeat poll)
   | <--- NFS4_OK, ppr_assignments   | (CANCEL_PRIOR for the
-  |       includes CANCEL_PRIOR     |  same file_FH/target)
+  |       includes CANCEL_PRIOR     |  same pa_file_fh/target)
   |                                 |
   |  [PS drops the prior assignment |
   |   from its in-flight queue;     |
@@ -1152,7 +1152,7 @@ Both operations identify the affected migration by layout
 stateid.  The PS acquired this stateid earlier when it issued
 LAYOUTGET against the migration layout (L3) for this file; the
 MDS keys its persisted in-flight migration record on the
-`(clientid, file_FH, layout_stid)` triple.  No new stateid type
+`(clientid, pa_file_fh, layout_stid)` triple.  No new stateid type
 is required.
 
 ## Operation 95: PROXY_DONE - Commit or Roll Back a Proxy Operation {#sec-PROXY_DONE}
@@ -1192,7 +1192,7 @@ The PS compounds PROXY_DONE after the byte-shoveling phase
 completes (or fails):
 
 ```
-SEQUENCE PUTFH(file_FH) LAYOUTRETURN(L3_stateid) PROXY_DONE(pd_stateid, status)
+SEQUENCE PUTFH(pa_file_fh) LAYOUTRETURN(L3_stateid) PROXY_DONE(pd_stateid, status)
 ```
 
 LAYOUTRETURN runs FIRST per {{RFC8881}} S18.51, releasing the
@@ -1231,7 +1231,7 @@ first failure encountered:
    `prr_registration_id` retains authority over its in-flight
    migrations.  Mismatch returns `NFS4ERR_PERM`.
 5. The current filehandle (set by the preceding PUTFH) matches
-   the migration record's recorded `file_FH`.  Otherwise:
+   the migration record's recorded `pa_file_fh`.  Otherwise:
    `NFS4ERR_BAD_STATEID`.
 6. `pd_stateid.seqid` matches the most recently issued seqid
    for this proxy_stateid (per {{RFC8881}} S8.2.4 stateid
@@ -1297,7 +1297,7 @@ delivered the corresponding `proxy_assignment4`.
 Compound shape:
 
 ```
-SEQUENCE PUTFH(file_FH) LAYOUTRETURN(L3_stateid) PROXY_CANCEL(pc_stateid)
+SEQUENCE PUTFH(pa_file_fh) LAYOUTRETURN(L3_stateid) PROXY_CANCEL(pc_stateid)
 ```
 
 LAYOUTRETURN runs first (standard {{RFC8881}} S18.51 release
@@ -1338,7 +1338,7 @@ make any behavioral distinction on the wire.
 When multiple PSes are registered against the same MDS, the
 MDS coordinates assignment fan-out per the following rules:
 
-1. **At most one in-flight migration per `(file_FH,
+1. **At most one in-flight migration per `(pa_file_fh,
    target_dstore)` pair at any time.**  This is a HARD
    invariant.  The MDS keys its in-flight migrations registry
    on this pair and MUST NOT assign a migration whose key
@@ -1360,7 +1360,7 @@ MDS coordinates assignment fan-out per the following rules:
    - Internally treats the abandoned migrations as
      PROXY_DONE(FAIL): commits L1, drops L2/G half-fills.
    - Re-queues each abandoned migration as a fresh assignment.
-   - On reassignment, the per-`(file_FH, target_dstore)`
+   - On reassignment, the per-`(pa_file_fh, target_dstore)`
      invariant catches any duplicate (the new PS picks a fresh
      target if the old target was contaminated; the autopilot
      decides).
@@ -1379,7 +1379,7 @@ cap, the first PS poll receives all of them).
 
 Implementations SHOULD include a TSan-style invariant test that
 confirms, under concurrent PROXY_PROGRESS polls from N PSes,
-the MDS never assigns two records with the same `(file_FH,
+the MDS never assigns two records with the same `(pa_file_fh,
 target_dstore)` key.
 
 # Layout Shape During a Proxy Operation {#sec-layout-shape}
@@ -1794,7 +1794,7 @@ replacement).
                          +-----+--------+
                                |
                                | PS picks up the assignment:
-                               | OPEN(file_FH) + LAYOUTGET
+                               | OPEN(pa_file_fh) + LAYOUTGET
                                | (L3 composite layout)
                                v
                          +--------------+
@@ -1915,7 +1915,7 @@ independent things across restart:
    client record.  After reboot the MDS knows the PS was
    previously registered without re-issuing PROXY_REGISTRATION.
 3. **Per-file in-flight migration records**:
-   `{file_FH, source_dstore, target_dstore, owning_PS_clientid,
+   `{pa_file_fh, source_dstore, target_dstore, owning_PS_clientid,
    started_at}`.  Lives alongside (1) and (2).  Keyed on
    `clientid` (stable across PS-process restarts that preserve
    `client_owner4`), NOT on the layout stateid (which is
@@ -1942,7 +1942,7 @@ After detecting session loss, the PS:
      what a normal NFSv4 client persists; without it the PS
      cannot reclaim its layouts after a PS-process restart and
      the migration is abandoned.
-   - `OPEN_RECLAIM(CLAIM_PREVIOUS, file_FH)` per {{RFC8881}}
+   - `OPEN_RECLAIM(CLAIM_PREVIOUS, pa_file_fh)` per {{RFC8881}}
      S9.11.1.  The MDS validates that the prior `clientid4`
      had an OPEN on this file (which it did -- the OPEN was
      created when the PS picked up the assignment from a
@@ -1952,7 +1952,7 @@ After detecting session loss, the PS:
      The MDS validates that:
      - The session's client has `nc_is_registered_ps == true`
      - A persisted in-flight migration record exists for this
-       `(clientid, file_FH, layout_stateid)` triple
+       `(clientid, pa_file_fh, layout_stateid)` triple
      - The reclaim falls within the server grace window
      and re-grants the L3 composite layout with a fresh stateid
      (the stateid the PS supplied is consumed; a new one is
