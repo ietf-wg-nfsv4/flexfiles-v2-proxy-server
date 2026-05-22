@@ -1738,10 +1738,11 @@ excursion through the other four states, after which the
 file returns to READY with a new layout in place (or, on
 cancellation or failure, with the old layout preserved).
 
-The diagram below shows the happy-path progression; the
-table that follows enumerates every state transition
-including the unhappy ones (cancellation, PS failure without
-replacement).
+The diagram below shows the states and the principal
+transitions, including the failure exits from ASSIGNED and
+PROXY_ACTIVE back to READY.  The Transitions table that
+follows enumerates each transition with its trigger and
+effect.
 
 ~~~
             (admin, policy, repair, or maintenance trigger)
@@ -1760,11 +1761,11 @@ replacement).
                                | PROXY_PROGRESS reply
                                v
                          +--------------+
-                         |   ASSIGNED   |
-                         | MDS has the  |
-                         | in-flight    |
-                         | record; PS   |
-                         | has not yet  |
+                         |   ASSIGNED   |---> back to READY on
+                         | MDS has the  |     cancellation
+                         | in-flight    |     (MDS-initiated, or
+                         | record; PS   |     lease expires before
+                         | has not yet  |     the PS picks up)
                          | OPEN'd file  |
                          +-----+--------+
                                |
@@ -1773,13 +1774,11 @@ replacement).
                                | (L3 composite layout)
                                v
                          +--------------+
-                         | PROXY_ACTIVE |
-                         | clients see  |
-                         | layout with  |
-                         | PS DS at     |
-                         | head of      |
-                         | ffs_data_    |
-                         | servers;     |
+                         | PROXY_ACTIVE |---> back to READY on
+                         | clients see  |     PROXY_DONE(FAIL),
+                         | single-DS    |     PROXY_CANCEL, or
+                         | layout       |     PS lease expiry;
+                         | naming PS;   |     layout reverts to L1
                          | PS drives    |
                          | source->dest |
                          +-----+--------+
@@ -1808,6 +1807,7 @@ replacement).
                          | retired    |
                          +------------+
 ~~~
+{: #fig-state-machine title="File state during a proxy operation"}
 
 ## Transitions
 
