@@ -514,6 +514,87 @@ unchanged; the tight-coupling control session in
 {{I-D.haynes-nfsv4-flexfiles-v2}} carries over as defined
 there.
 
+## Layout Model
+
+### Single-Layout Model
+
+This design uses a single layout with a PROXY-flagged entry
+rather than two linked layouts.  Three considerations drive
+that choice.  pNFS clients already handle single layouts
+cleanly, so no new layout-linkage mechanism needs to be
+invented or implemented on the client.  The client's view of
+the file -- "the file's DS is the PS" -- is the truth during
+the operation, so exposing the source and destination DSes
+directly would invite confusion about which entry to address
+rather than clarify.  And late-arriving clients see the proxy
+layout from the start, without any separate setup path to
+join an operation already in progress.  The alternative -- a
+source layout plus a destination layout linked by a
+redirector record -- was considered and rejected on those
+three grounds.
+
+Routing all client I/O through the PS has a cost deployments
+MUST weigh.  For the duration of a migration the PS is a
+data-path single point of failure for the file: the client
+sees one data server, the PS, and the usual Flex Files
+mitigation -- client-side mirroring across several DSes -- is
+unavailable to it.  A file under migration therefore has
+lower availability than a normally-mirrored file until
+PROXY_DONE.  The PS is also a throughput funnel: all client
+read and write traffic for the file, plus the PS's own copy
+traffic, passes through one PS, adding a latency hop and a
+bandwidth bottleneck.  These costs are inherent to the
+single-layout choice; they argue against migrating very
+large files in a single proxy operation, and motivate the
+multi-PS and partial-range extensions listed as out of scope
+({{sec-scope-out}}).
+
+### Two-Layout State on the MDS Side {#sec-two-layout-state}
+
+For each file F whose mirror on a draining dstore D is being
+migrated, the MDS keeps three logical layout records.  Only
+L3 backs a client-facing layout; L1 and L2 are MDS-internal
+bookkeeping for the duration of the migration.
+
+- **L1** -- the pre-migration mirror set, including D.  This
+  record is MDS-internal: it preserves what the file's layout
+  was before the migration and is handed to no client while
+  the migration is active.
+- **L2** -- the post-migration mirror set: L1 with D replaced
+  by the target G.  Also MDS-internal; it becomes the file's
+  layout after the PROXY_DONE swap.
+- **L3** -- the composite the PS works from.  It backs the
+  layout every client is served during the migration: that
+  client-facing layout names the PS as its data server, and
+  the PS does the real I/O against L3's two mirror entries:
+  - `M1` (read source): the L1 mirror set.  The PS reads
+    source bytes from any mirror in M1.
+  - `M2` (write target): the L1 mirror set PLUS G.  The PS
+    writes via CSM to every mirror in M2.
+
+During the migration every client of F -- whichever front
+door it used -- is served a layout naming the PS; the PS is
+the sole writer to M1 and M2.  No client addresses D, E, or G
+directly.  Because the PS is the sole writer, it MUST NOT
+acknowledge a client write until every mirror in M2 is
+durable: an acknowledged write has reached the whole target
+set, so a PS crash cannot leave a write acknowledged to the
+client but applied to only part of the mirror set.
+
+D's presence in M2 (alongside G) is intentional: the PS keeps
+D a current mirror until the PROXY_DONE swap, so a cancelled
+migration can fall back to L1 with no data loss.  The PS
+writes both D and G, and because the PS is the only writer
+they converge to the same byte image with no inter-writer
+race.
+
+### Pinned definitions
+
+- L1.mirrors = the file's pre-migration mirror set, includes D
+- L2.mirrors = (L1.mirrors \ {D}) union {G}
+- L3.M1 = L1.mirrors  (PS's read-source set)
+- L3.M2 = L1.mirrors union {G}  (PS's CSM write-target set)
+
 ## Session Between MDS and PS {#sec-design-session}
 
 The PS opens an NFSv4.1+ session to the MDS as a normal
@@ -1416,86 +1497,7 @@ that DS rather than to any other data server in the layout.
 The PS internally dispatches reads and writes to the source
 and destination DSes.
 
-## Single-Layout Model
-
-This design uses a single layout with a PROXY-flagged entry
-rather than two linked layouts.  Three considerations drive
-that choice.  pNFS clients already handle single layouts
-cleanly, so no new layout-linkage mechanism needs to be
-invented or implemented on the client.  The client's view of
-the file -- "the file's DS is the PS" -- is the truth during
-the operation, so exposing the source and destination DSes
-directly would invite confusion about which entry to address
-rather than clarify.  And late-arriving clients see the proxy
-layout from the start, without any separate setup path to
-join an operation already in progress.  The alternative -- a
-source layout plus a destination layout linked by a
-redirector record -- was considered and rejected on those
-three grounds.
-
-Routing all client I/O through the PS has a cost deployments
-MUST weigh.  For the duration of a migration the PS is a
-data-path single point of failure for the file: the client
-sees one data server, the PS, and the usual Flex Files
-mitigation -- client-side mirroring across several DSes -- is
-unavailable to it.  A file under migration therefore has
-lower availability than a normally-mirrored file until
-PROXY_DONE.  The PS is also a throughput funnel: all client
-read and write traffic for the file, plus the PS's own copy
-traffic, passes through one PS, adding a latency hop and a
-bandwidth bottleneck.  These costs are inherent to the
-single-layout choice; they argue against migrating very
-large files in a single proxy operation, and motivate the
-multi-PS and partial-range extensions listed as out of scope
-({{sec-scope-out}}).
-
-## Two-Layout State on the MDS Side {#sec-two-layout-state}
-
-For each file F whose mirror on a draining dstore D is being
-migrated, the MDS keeps three logical layout records.  Only
-L3 backs a client-facing layout; L1 and L2 are MDS-internal
-bookkeeping for the duration of the migration.
-
-- **L1** -- the pre-migration mirror set, including D.  This
-  record is MDS-internal: it preserves what the file's layout
-  was before the migration and is handed to no client while
-  the migration is active.
-- **L2** -- the post-migration mirror set: L1 with D replaced
-  by the target G.  Also MDS-internal; it becomes the file's
-  layout after the PROXY_DONE swap.
-- **L3** -- the composite the PS works from.  It backs the
-  layout every client is served during the migration: that
-  client-facing layout names the PS as its data server, and
-  the PS does the real I/O against L3's two mirror entries:
-  - `M1` (read source): the L1 mirror set.  The PS reads
-    source bytes from any mirror in M1.
-  - `M2` (write target): the L1 mirror set PLUS G.  The PS
-    writes via CSM to every mirror in M2.
-
-During the migration every client of F -- whichever front
-door it used -- is served a layout naming the PS; the PS is
-the sole writer to M1 and M2.  No client addresses D, E, or G
-directly.  Because the PS is the sole writer, it MUST NOT
-acknowledge a client write until every mirror in M2 is
-durable: an acknowledged write has reached the whole target
-set, so a PS crash cannot leave a write acknowledged to the
-client but applied to only part of the mirror set.
-
-D's presence in M2 (alongside G) is intentional: the PS keeps
-D a current mirror until the PROXY_DONE swap, so a cancelled
-migration can fall back to L1 with no data loss.  The PS
-writes both D and G, and because the PS is the only writer
-they converge to the same byte image with no inter-writer
-race.
-
-### Pinned definitions
-
-- L1.mirrors = the file's pre-migration mirror set, includes D
-- L2.mirrors = (L1.mirrors \ {D}) union {G}
-- L3.M1 = L1.mirrors  (PS's read-source set)
-- L3.M2 = L1.mirrors union {G}  (PS's CSM write-target set)
-
-### Atomic commit on PROXY_DONE
+## Atomic commit on PROXY_DONE
 
 When the PS issues `PROXY_DONE(pd_stateid, pd_status=NFS4_OK)`,
 the MDS atomically (in one transaction):
@@ -1520,7 +1522,7 @@ When PROXY_DONE indicates failure (or PROXY_CANCEL is issued):
 4. CB_LAYOUTRECALL is issued for the PS-naming layouts; on the
    next LAYOUTGET clients receive L1
 
-### The swap window
+## The swap window
 
 Because every client wrote through the PS, no client ever
 addressed D directly, and there are no client writes in flight
@@ -1536,7 +1538,7 @@ In-flight client I/O to the PS across that boundary is handled
 by the in-flight-I/O rules for a PS change (see "In-Flight I/O
 When the PS Changes").
 
-### The CLAIM_PROXY open claim {#sec-claim-proxy}
+## The CLAIM_PROXY open claim {#sec-claim-proxy}
 
 The PS opens the file with a new OPEN claim, `CLAIM_PROXY`.
 A bare `OPEN(CLAIM_NULL)` cannot serve here: it would be
@@ -1625,7 +1627,7 @@ layout, one for the migration -- keeps the migration record's
 lifetime independent of any LAYOUTGET / LAYOUTRETURN cycle
 the PS performs during the byte-shoveling phase.
 
-### Drain interaction
+## Drain interaction
 
 The DRAINING state on dstore D is observable to external
 clients only through the absence of new instance allocations on
@@ -1659,7 +1661,7 @@ shape is defined in the per-instance delta model below
 (informative) but is not exercised by the wire ops in this
 revision.
 
-### Per-instance migration deltas (informative)
+## Per-instance migration deltas (informative)
 
 The L1/L2/L3 framing above describes one valid implementation
 approach -- whole-layout swap -- that captures the simplest
