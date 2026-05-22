@@ -2564,10 +2564,14 @@ of it.
     probably depends on operator priorities and may need to be
     a configurable MDS policy rather than a protocol rule.
 
-4.  **Persistent vs ephemeral MDS operation state.**  Is
-    operation persistence a SHOULD or a MAY?  Production
-    deployments probably want SHOULD to avoid restart cost on
-    large moves; prototypes probably want MAY.
+4.  **Migration-state retention across restart.**  The recovery
+    model leaves retention of in-flight migration state across an
+    MDS restart to the implementation; an MDS that retains nothing
+    is conformant.  Should the document nonetheless add a SHOULD
+    recommending retention, so that a reboot does not discard the
+    progress of a large move?  Production deployments would likely
+    want it; it is a quality-of-implementation recommendation only,
+    with no effect on interoperability.
 
 5.  **Registration as a capability-scoped authority.**  Should
     PROXY_REGISTRATION require a separate EXCHGID4 flag (e.g.,
