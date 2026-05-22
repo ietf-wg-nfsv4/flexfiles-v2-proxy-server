@@ -1603,14 +1603,15 @@ the PS performs during the byte-shoveling phase.
 ## Drain interaction
 
 The DRAINING state on dstore D is observable to external
-clients only through the absence of new instance allocations on
-D (via the runway-pop filter).  Before the in-flight migration
-record becomes visible to the LAYOUTGET path, the MDS issues
-CB_LAYOUTRECALL on every layout outstanding for the file whose
-composition includes D.  Once those layouts have been returned
-(or administratively revoked when a client's CB back-channel
-fails to ack within the recall window), the migration record
-is published.
+clients only through the absence of new layouts naming D:
+while D is DRAINING, the MDS does not place D in any new
+mirror set.  Before the migration becomes active for an
+existing file whose layout names D, the MDS issues
+CB_LAYOUTRECALL on every outstanding layout for the file
+whose mirror set includes D.  Once those layouts have been
+returned -- or administratively revoked when a client's CB
+back-channel fails to ack within the recall window -- the
+migration is in flight.
 
 From that point until the assigned PS completes its
 `OPEN(CLAIM_PROXY)` ({{sec-claim-proxy}}) and registers the
