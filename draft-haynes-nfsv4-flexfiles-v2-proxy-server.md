@@ -1182,7 +1182,7 @@ PROXY_DONE signals the terminal outcome of a migration the PS
 was assigned via PROXY_PROGRESS.  `pd_stateid` is the
 proxy_stateid the MDS minted when it delivered the
 corresponding `proxy_assignment4`
-({{sec-proxy-stateid}}).  `pd_status == NFS4_OK` directs the
+({{sec-proxy-stateid}}).  A `pd_status` of `NFS4_OK` directs the
 MDS to commit the migration (swap the file's active layout
 from the pre-migration shape L1 to the post-migration shape
 L2); any other value directs the MDS to roll back (keep L1,
@@ -1211,7 +1211,7 @@ The MDS MUST validate, in this priority order, returning the
 first failure encountered:
 
 1. The calling session belongs to a registered PS (i.e., the
-   session's owning client has `nc_is_registered_ps == true`).
+   session's owning client has `nc_is_registered_ps` set).
    Otherwise: `NFS4ERR_PERM`.
 2. `pd_stateid.other` was minted in the current
    (server_state, boot_seq) tuple.  A proxy_stateid minted in
@@ -1238,7 +1238,7 @@ first failure encountered:
 
 If all validations succeed, the MDS atomically:
 
--  For `pd_status == NFS4_OK`: applies the migration's recorded
+-  For a `pd_status` of `NFS4_OK`: applies the migration's recorded
    per-instance deltas to the inode's active layout
    (`i_layout_segments`), removing DRAINING slots, promoting
    INCOMING slots to STABLE, drops the L3 PS-only composite,
@@ -1248,7 +1248,7 @@ If all validations succeed, the MDS atomically:
    return their layouts.  See "Layout Shape During a Proxy
    Operation" ({{sec-layout-shape}}) for the per-instance
    delta machinery (informative).
--  For `pd_status != NFS4_OK`: discards the migration's
+-  For any other `pd_status`: discards the migration's
    recorded deltas without touching `i_layout_segments`.
    No CB_LAYOUTRECALL is needed (external clients never saw
    the post-image).  The PS owns cleanup of any half-written
@@ -1319,7 +1319,7 @@ recorded deltas, retires the proxy operation, invalidates
 `pc_stateid`, and (informatively) updates its
 operator-facing telemetry to record the cancellation.  No
 CB_LAYOUTRECALL is needed.  Side effects on `i_layout_segments`
-mirror PROXY_DONE with `pd_status != NFS4_OK`.
+mirror PROXY_DONE with a failing `pd_status`.
 
 The distinction between PROXY_DONE(FAIL) and PROXY_CANCEL is
 purely intent / accounting: PROXY_DONE(FAIL) records that the
@@ -1842,7 +1842,7 @@ replacement).
 | PROXY_ACTIVE | COMMITTING | PS issues PROXY_DONE with `pd_status=NFS4_OK` | MDS begins CB_LAYOUTRECALL fan-out to clients still on the old layout |
 | COMMITTING | DONE | All clients have LAYOUTRETURNed | MDS issues post-move layouts (L2); source DSes retired |
 | ASSIGNED | READY | MDS-initiated cancellation: MDS includes a `PROXY_OP_CANCEL_PRIOR` assignment in the next PROXY_PROGRESS reply | MDS drops the in-flight record; PS drops the assignment from its in-flight queue |
-| PROXY_ACTIVE | READY | PS failed and no replacement available; or PS-initiated cancellation via PROXY_CANCEL; or PROXY_DONE with `pd_status != NFS4_OK` | MDS reverts layouts to pre-move source set (L1) |
+| PROXY_ACTIVE | READY | PS failed and no replacement available; or PS-initiated cancellation via PROXY_CANCEL; or PROXY_DONE with a failing `pd_status` | MDS reverts layouts to pre-move source set (L1) |
 
 # PS Failure and Recovery
 
@@ -1959,7 +1959,7 @@ After detecting session loss, the PS:
    - `LAYOUTGET(reclaim=true)` per {{RFC8881}} S18.43.3, supplying
      the previously-retained layout stateid as the reclaim key.
      The MDS validates that:
-     - The session's client has `nc_is_registered_ps == true`
+     - The session's client has `nc_is_registered_ps` set
      - The MDS recognizes an in-flight proxy operation for
        this `(clientid, pa_file_fh, layout_stateid)` triple
      - The reclaim falls within the server grace window
