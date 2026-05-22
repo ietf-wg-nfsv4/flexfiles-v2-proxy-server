@@ -1138,7 +1138,7 @@ in addition to the extended PROXY_PROGRESS:
 
 - `PROXY_DONE` (op 95): PS reports terminal success or failure
   on a specific in-flight migration.  The MDS uses the
-  ppd_status to atomically commit (success: swap the inode's
+  ppd_status to atomically commit (success: swap the file's
   active layout from L1 to L2) or roll back (failure: keep L1,
   drop L2/G).
 - `PROXY_CANCEL` (op 96): PS aborts a work item it was
@@ -1239,7 +1239,7 @@ first failure encountered:
 If all validations succeed, the MDS atomically:
 
 -  For a `pd_status` of `NFS4_OK`: applies the migration's recorded
-   per-instance deltas to the inode's active layout
+   per-instance deltas to the file's active layout
    (`i_layout_segments`), removing DRAINING slots, promoting
    INCOMING slots to STABLE, drops the L3 PS-only composite,
    issues CB_LAYOUTRECALL on the prior layout to external
@@ -1502,7 +1502,7 @@ When the PS issues `PROXY_DONE(pd_stateid, pd_status=NFS4_OK)`,
 the MDS atomically (in one transaction):
 
 1. Promotes L2 to be the file's layout (D dropped, G promoted)
-2. Drops L1 and L3 from the inode's layout records
+2. Drops L1 and L3 from the file's layout records
 3. Retires the in-flight migration record
 4. Issues CB_LAYOUTRECALL for the file's outstanding
    client-facing (PS-naming) layouts
