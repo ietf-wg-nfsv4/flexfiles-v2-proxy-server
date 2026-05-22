@@ -2401,28 +2401,7 @@ the editors' infrastructure.
 
 # IANA Considerations {#iana-considerations}
 
-The fore-channel NFSv4.2 operations defined in {{sec-new-ops}}
-and {{sec-new-fore-channel}} -- OP_PROXY_REGISTRATION (93),
-OP_PROXY_PROGRESS (94), OP_PROXY_DONE (95), and
-OP_PROXY_CANCEL (96) -- follow the convention that NFSv4.2
-operation numbers are governed by the publishing document and
-do not require a separate IANA registry entry.  The same
-convention applies to the new flag bit FFV2_DS_FLAGS_PROXY,
-which is an additional bit in the ffv2_ds_flags4 bitmap
-defined by {{I-D.haynes-nfsv4-flexfiles-v2}}; that document
-explicitly records its flag-word bitmaps as not
-IANA-registered, and any future bit allocations are made by a
-document that updates or obsoletes it.
-
-Following the precedent in
-{{I-D.haynes-nfsv4-flexfiles-v2}} (which in turn follows
-{{RFC8435}}), this document does not establish an IANA
-registry for its bit spaces (the `ppa_flags` reserved word in
-PROXY_PROGRESS, the `prr_flags` reserved word in
-PROXY_REGISTRATION, and FFV2_DS_FLAGS_PROXY); future bit
-allocations are made by a document that updates or obsoletes
-this one.  Implementations MUST treat unknown bits as
-reserved and MUST NOT assign meaning to them locally.
+This document has no IANA actions.
 
 # Interaction with the Main Draft {#interaction}
 
