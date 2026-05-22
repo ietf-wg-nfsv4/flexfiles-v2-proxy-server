@@ -351,10 +351,10 @@ backed by replacement DSes and queues a REPAIR assignment.  The
 next registered-PS PROXY_PROGRESS poll receives the assignment;
 the proxy drives reconstruction from whatever surviving shards
 remain.  If fewer than k shards survive across the mirror set,
-the proxy reports terminal status via PROXY_DONE with
-status=NFS4ERR_PAYLOAD_LOST, matching the per-chunk repair
-semantics in the Repair Client Selection section of
-{{I-D.haynes-nfsv4-flexfiles-v2}}.
+the proxy reports terminal failure via PROXY_DONE with
+`pd_status` set to `NFS4ERR_PAYLOAD_LOST`, matching the
+per-chunk repair semantics in the Repair Client Selection
+section of {{I-D.haynes-nfsv4-flexfiles-v2}}.
 
 ## TLS Coverage Transition
 
@@ -1580,7 +1580,7 @@ race.
 
 ### Atomic commit on PROXY_DONE
 
-When the PS issues `PROXY_DONE(layout_stid, status=NFS4_OK)`,
+When the PS issues `PROXY_DONE(pd_stateid, pd_status=NFS4_OK)`,
 the MDS atomically (in one persisted transaction):
 
 1. Promotes L2 to be the file's layout (D dropped, G promoted)
