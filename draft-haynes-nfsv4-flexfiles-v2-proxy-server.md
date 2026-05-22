@@ -98,11 +98,12 @@ which the MDS returns inline in the poll response; the PS
 carries out each assignment and signals completion via
 PROXY_DONE (or abort via PROXY_CANCEL).  All of the PS-MDS
 coordination is fore-channel; the PS does not require a
-back-channel callback program.  Clients discover that a file
-is being proxied through the normal pNFS layout path -- a
-layout that names the PS with a new data-server flag
-(FFV2_DS_FLAGS_PROXY) -- and route their I/O through it while
-it is active.
+back-channel callback program.  A client reaches a proxied
+file either by contacting the PS directly, as an ordinary
+NFS server, or through a pNFS layout whose data server is
+the PS.  While a migration is in progress every client
+routes its I/O through the PS; for codec translation, only
+a client that cannot encode the file does.
 
 Flex Files v1 provides no standardized mechanism for migrating
 a file's layout while the file remains in use.  Without such
@@ -795,26 +796,27 @@ proxy migration.  The wire shape reuses the standard NFSv4
 
 The proxy_stateid value space is disjoint from the open,
 lock, layout, and delegation stateid value spaces defined in
-{{RFC8881}}.  Disjointness is enforced by context, not by an
-in-band tag: only PROXY_PROGRESS, PROXY_DONE, and PROXY_CANCEL
-arguments carry a `proxy_stateid4`.  An implementation MUST
-NOT use an open, lock, layout, or delegation stateid lookup
-table to resolve a proxy_stateid.  Conversely, a leaked
-proxy_stateid presented to a non-PROXY operation (e.g., READ,
-WRITE, SETATTR, CLOSE) MUST be rejected with
-NFS4ERR_BAD_STATEID by the per-op stateid validator: the
-per-op tables are disjoint by construction, and a value
-allocated as a proxy_stateid will not match any entry in any
-other table.
+{{RFC8881}}.  Disjointness is enforced by context, not by an in-band tag.
+A `proxy_stateid4` appears in exactly four places: the
+PROXY_PROGRESS, PROXY_DONE, and PROXY_CANCEL arguments, and
+the `open_claim_proxy4` operand of an `OPEN(CLAIM_PROXY)`
+({{sec-claim-proxy}}) -- where it is carried inside the open
+claim, not in a stateid argument slot.  An implementation
+MUST NOT use an open, lock, layout, or delegation stateid
+lookup table to resolve a proxy_stateid.  Conversely, a
+leaked proxy_stateid presented in the stateid argument of an
+ordinary operation (e.g., READ, WRITE, SETATTR, CLOSE) MUST
+be rejected with NFS4ERR_BAD_STATEID by the per-op stateid
+validator: the per-op tables are disjoint by construction,
+and a value allocated as a proxy_stateid will not match any
+entry in any other table.
 
 ### MDS Minting
 
 The MDS mints a fresh proxy_stateid each time it accepts a
-work assignment for delivery to a PS, and includes it in the
-`proxy_assignment4` carried in the next PROXY_PROGRESS reply.
-(The current XDR for `proxy_assignment4` does not yet carry a
-proxy_stateid field; the field is added in the same revision
-that defines this section.  See {{sec-PROXY_PROGRESS}}.)
+work assignment for delivery to a PS, and includes it as the
+`pa_stateid` field of the `proxy_assignment4` carried in the
+next PROXY_PROGRESS reply ({{sec-PROXY_PROGRESS}}).
 
 The MDS guarantees that no two proxy_stateids in the same
 (server_state, boot_seq) are equal.  An implementation MAY
@@ -1102,7 +1104,9 @@ extensions (for example, a precomputed source-layout
 descriptor so the PS can dial source DSes without a second
 LAYOUTGET).  The `pa_stateid` field carries the
 `proxy_stateid4` ({{sec-proxy-stateid}}) the MDS has minted
-for this migration; the PS uses it as the handle in the
+for this migration; the PS presents it in the
+`OPEN(CLAIM_PROXY)` that binds it to the file
+({{sec-claim-proxy}}) and references it as the handle in the
 eventual PROXY_DONE / PROXY_CANCEL.
 
 The `pa_kind` discriminates the work type:
@@ -1512,35 +1516,60 @@ source layout plus a destination layout linked by a
 redirector record -- was considered and rejected on those
 three grounds.
 
+Routing all client I/O through the PS has a cost deployments
+MUST weigh.  For the duration of a migration the PS is a
+data-path single point of failure for the file: the client
+sees one data server, the PS, and the usual Flex Files
+mitigation -- client-side mirroring across several DSes -- is
+unavailable to it.  A file under migration therefore has
+lower availability than a normally-mirrored file until
+PROXY_DONE.  The PS is also a throughput funnel: all client
+read and write traffic for the file, plus the PS's own copy
+traffic, passes through one PS, adding a latency hop and a
+bandwidth bottleneck.  These costs are inherent to the
+single-layout choice; they argue against migrating very
+large files in a single proxy operation, and motivate the
+multi-PS and partial-range extensions listed as out of scope
+({{sec-scope-out}}).
+
 ## Two-Layout State on the MDS Side {#sec-two-layout-state}
 
-`[[REVISED 2026-04-26 -- new normative subsection.  This
-specifies the MDS's internal layout state during a migration.
-External clients see only the active layout (L1 before the
-PROXY_DONE swap, L2 after); the PS sees a composite (L3) for
-the duration of the migration.]]`
-
 For each file F whose mirror on a draining dstore D is being
-migrated, the MDS persists three logical layout records:
+migrated, the MDS keeps three logical layout records.  Only
+L3 backs a client-facing layout; L1 and L2 are MDS-internal
+bookkeeping for the duration of the migration.
 
-- **L1** -- the active layout for external clients.  Mirror
-  set includes D unchanged.  All external traffic (existing
-  cached layouts, fresh LAYOUTGETs) sees L1.
-- **L2** -- the candidate post-migration layout.  Mirror set
-  has D replaced by the target G.  Not visible to external
-  clients during the migration window.
-- **L3** -- the composite layout served only to the
-  registered PS that owns the migration.  Two mirror entries:
-  - `M1` (read source): the current L1 mirror set.  PS reads
+- **L1** -- the pre-migration mirror set, including D.  This
+  record is MDS-internal: it preserves what the file's layout
+  was before the migration and is handed to no client while
+  the migration is active.
+- **L2** -- the post-migration mirror set: L1 with D replaced
+  by the target G.  Also MDS-internal; it becomes the file's
+  layout after the PROXY_DONE swap.
+- **L3** -- the composite the PS works from.  It backs the
+  layout every client is served during the migration: that
+  client-facing layout names the PS as its data server, and
+  the PS does the real I/O against L3's two mirror entries:
+  - `M1` (read source): the L1 mirror set.  The PS reads
     source bytes from any mirror in M1.
-  - `M2` (write target): L1's mirror set PLUS G.  PS writes via
-    CSM to every mirror in M2.
+  - `M2` (write target): the L1 mirror set PLUS G.  The PS
+    writes via CSM to every mirror in M2.
 
-The presence of D in M2 (alongside G) is intentional and
-load-bearing: PS-issued CSM writes land on D (keeping D in sync
-with concurrent external client writes, which also CSM to D
-via L1) and on G (filling the destination as the PS catches up).
-Both D and G converge to the same byte image.
+During the migration every client of F -- whichever front
+door it used -- is served a layout naming the PS; the PS is
+the sole writer to M1 and M2.  No client addresses D, E, or G
+directly.  Because the PS is the sole writer, it MUST NOT
+acknowledge a client write until every mirror in M2 is
+durable: an acknowledged write has reached the whole target
+set, so a PS crash cannot leave a write acknowledged to the
+client but applied to only part of the mirror set.
+
+D's presence in M2 (alongside G) is intentional: the PS keeps
+D a current mirror until the PROXY_DONE swap, so a cancelled
+migration can fall back to L1 with no data loss.  The PS
+writes both D and G, and because the PS is the only writer
+they converge to the same byte image with no inter-writer
+race.
 
 ### Pinned definitions
 
@@ -1554,59 +1583,130 @@ Both D and G converge to the same byte image.
 When the PS issues `PROXY_DONE(layout_stid, status=NFS4_OK)`,
 the MDS atomically (in one persisted transaction):
 
-1. Flips the active layout to L2 (D dropped, G promoted)
-2. Drops L1 from the inode's layout records
-3. Drops L3 (PS no longer needs the migration view)
-4. Issues CB_LAYOUTRECALL to external clients holding cached L1
-5. Defers `REMOVE_MIRROR(D)` until all L1 holders return
+1. Promotes L2 to be the file's layout (D dropped, G promoted)
+2. Drops L1 and L3 from the inode's layout records
+3. Retires the in-flight migration record
+4. Issues CB_LAYOUTRECALL for the file's outstanding
+   client-facing (PS-naming) layouts
+5. Defers `REMOVE_MIRROR(D)` until those layouts are returned
+
+On its next LAYOUTGET each client receives the post-migration
+layout (L2): the real DSes, with no PS.
 
 When PROXY_DONE indicates failure (or PROXY_CANCEL is issued):
 
-1. Keeps L1 active, unchanged
-2. Drops L2; the half-filled G instance is internally unlinked
-3. Drops L3
-4. No CB_LAYOUTRECALL needed (external clients never saw L2)
+1. L1 is promoted unchanged -- the file falls back to its
+   pre-migration mirror set
+2. L2 is dropped; the half-filled G instance is internally
+   unlinked
+3. L3 is dropped and the migration record retired
+4. CB_LAYOUTRECALL is issued for the PS-naming layouts; on the
+   next LAYOUTGET clients receive L1
 
-### Late writes during the swap window
+### The swap window
 
-The deferred REMOVE_MIRROR(D) (step 5 of the success path)
-matters because clients with cached L1 layouts may have writes
-in flight that land on D after the swap.  Without the deferral,
-late writes would arrive at a destroyed D instance and the
-client's CSM would see NFS3ERR_STALE.
+Because every client wrote through the PS, no client ever
+addressed D directly, and there are no client writes in flight
+to D when the swap occurs.  The deferred `REMOVE_MIRROR(D)`
+covers only the PS's own trailing writes: by the time it
+issues PROXY_DONE the PS, as the sole writer, has quiesced its
+M2 fan-out, so the deferral window is short and contains no
+client-visible activity.
 
-Late writes that arrive at D between the swap and the deferred
-REMOVE are harmless: the bytes land on D's instance which is
-about to be unlinked; the bytes are dropped with the unlink.
-The client sees the write succeed (CSM to D succeeded) and the
-data is present on the surviving mirrors {E, G}.  No data loss
-or client-visible error.
+A client holding a PS-naming layout when CB_LAYOUTRECALL
+arrives returns it and re-LAYOUTGETs in the usual way.
+In-flight client I/O to the PS across that boundary is handled
+by the in-flight-I/O rules for a PS change (see "In-Flight I/O
+When the PS Changes").
 
-Late writes that arrive after D's instance has been unlinked
-(rare: client held L1 cache past CB_LAYOUTRECALL) return
-NFS3ERR_STALE on the CSM to D.  The client retries CSM with its
-cached layout; on next LAYOUTGET it gets L2 and writes only
-to {E, G} thereafter.  This is a recoverable transient error,
-not data loss.
+### The CLAIM_PROXY open claim {#sec-claim-proxy}
 
-### No new claim type
+The PS opens the file with a new OPEN claim, `CLAIM_PROXY`.
+A bare `OPEN(CLAIM_NULL)` cannot serve here: it would be
+indistinguishable from an ordinary or racing OPEN on the
+registered-PS session, leaving the MDS to infer proxy intent
+from session state -- which it cannot do reliably.
+`CLAIM_PROXY` makes the proxy OPEN explicit and carries, in
+one step, what the MDS needs to bind the PS to the file.
 
-The PS uses normal `OPEN(CLAIM_NULL)` to open the file.  The MDS
-recognises the registered-PS session
-(`nc_is_registered_ps == true`) and serves the L3 composite
-layout instead of a normal L1 RW grant.
+`open_claim_type4` gains one enumerant and `open_claim4` one
+union arm:
 
-The L3 layout stateid is a normal NFSv4 layout stateid; the
-PS uses it for CHUNK / WRITE / READ I/O against the source and
-target DSes in the standard way.  It is distinct from the
-per-migration handle, which is `proxy_stateid4`
-({{sec-proxy-stateid}}); the MDS keys its persisted in-flight
-migration record on the proxy_stateid, not on the layout
-stateid.  Separating the two handles -- one for I/O on a
-specific layout, one for the migration as a whole --
-keeps the migration record's lifetime independent of any
-single LAYOUTGET / LAYOUTRETURN cycle the PS may perform
-during the byte-shoveling phase.
+~~~ xdr
+/// /* New OPEN claim for a proxy server; extends the
+///    open_claim_type4 enumeration of [RFC8881]. */
+///
+/// const CLAIM_PROXY = 7;
+///
+/// struct open_claim_proxy4 {
+///         proxy_stateid4  ocp_proxy_stateid;
+///         nfs_fh4         ocp_ps_fh;
+/// };
+///
+/// /* open_claim4 gains the arm:
+///         case CLAIM_PROXY:
+///                 open_claim_proxy4       ocp_proxy;
+///  */
+~~~
+{: #fig-claim-proxy title="The CLAIM_PROXY open claim"}
+
+`CLAIM_PROXY` is filehandle-based and opens an existing file:
+the PS issues `PUTFH` of the assignment's `pa_file_fh`
+followed by `OPEN(CLAIM_PROXY)`, with no directory filehandle
+and no component name, in the manner of `CLAIM_FH`.
+`CLAIM_PROXY` MUST NOT be combined with `OPEN4_CREATE`.
+
+The operand carries two values:
+
+- `ocp_proxy_stateid` is the `proxy_stateid4` the MDS minted
+  for this assignment and returned in the PROXY_PROGRESS work
+  assignment ({{sec-PROXY_PROGRESS}}).  It is the correlator
+  that identifies this OPEN as the proxy OPEN for a specific
+  assignment; the MDS does not infer proxy intent from the
+  session.
+- `ocp_ps_fh` is the filehandle under which the PS will serve
+  the file to clients: the data-server filehandle that
+  appears in the layout the MDS hands a codec-incapable
+  client, and the filehandle a non-pNFS client obtains by
+  LOOKUP against the PS.  Only the PS can mint this
+  filehandle; it is opaque to the MDS, which records it and
+  copies it verbatim into the layouts it issues.  Carrying it
+  in the OPEN binds it atomically with the proxy OPEN.
+
+The MDS MUST verify that `ocp_proxy_stateid` is valid, that
+it names an outstanding assignment, that the assignment was
+made to the calling clientid, and that the current
+filehandle is that assignment's file.  An invalid or stale
+stateid draws `NFS4ERR_BAD_STATEID`.
+
+A PS MUST NOT issue `OPEN(CLAIM_PROXY)` unless it holds a
+successful PROXY_REGISTRATION ({{sec-PROXY_REGISTRATION}});
+successful registration is what establishes that the MDS
+implements this extension.
+
+`OPEN(CLAIM_PROXY)` returns the ordinary OPEN result: an open
+stateid, and an `open_delegation4` which the MDS MUST set to
+`OPEN_DELEGATE_NONE` -- a delegation to the PS would conflict
+with the migration the PS is itself driving.  The PS opens
+with `OPEN4_SHARE_ACCESS_BOTH` and `OPEN4_SHARE_DENY_NONE`.
+A retransmitted or re-issued `OPEN(CLAIM_PROXY)` is handled
+exactly as for any other claim: the session replay cache
+absorbs retransmits, and a genuine repeated OPEN by the same
+open-owner is an ordinary share-state operation.
+
+The PS then obtains the L3 composite layout with an ordinary
+LAYOUTGET; the MDS serves L3 because the calling clientid
+holds an in-flight migration record for the file.  The L3
+layout stateid is a normal NFSv4 layout stateid, used for
+CHUNK / WRITE / READ I/O against the source and target DSes
+in the standard way.  It is distinct from `proxy_stateid4`
+({{sec-proxy-stateid}}), which is a control-plane handle for
+the migration as a whole and is never presented to LAYOUTGET;
+the MDS keys its persisted in-flight migration record on the
+proxy_stateid.  Separating the two -- one for I/O on a
+layout, one for the migration -- keeps the migration record's
+lifetime independent of any LAYOUTGET / LAYOUTRETURN cycle
+the PS performs during the byte-shoveling phase.
 
 ### Drain interaction
 
@@ -1618,8 +1718,18 @@ CB_LAYOUTRECALL on every layout outstanding for the file whose
 composition includes D.  Once those layouts have been returned
 (or administratively revoked when a client's CB back-channel
 fails to ack within the recall window), the migration record
-is published and subsequent LAYOUTGETs return the post-image
-view (L2 from external clients' perspective; L3 from the PS's).
+is published.
+
+From that point until the assigned PS completes its
+`OPEN(CLAIM_PROXY)` ({{sec-claim-proxy}}) and registers the
+filehandle under which it will serve the file, the MDS cannot
+yet build a client-facing layout, and answers every LAYOUTGET
+for the file with `NFS4ERR_DELAY`; clients retry.  This window
+MUST be bounded: if the assigned PS does not complete its
+`OPEN(CLAIM_PROXY)` within a deadline tied to its registration
+lease, the MDS reassigns or abandons the assignment and stops
+returning `NFS4ERR_DELAY`.  Once the PS has opened, subsequent
+LAYOUTGETs for the file return a layout naming the PS.
 
 This omit-and-replace ordering guarantees that no client write
 hits D after the migration has started.  The alternative --
@@ -1810,7 +1920,7 @@ replacement).
 | From | To | Trigger | Actions |
 |------|-----|---------|---------|
 | READY | ASSIGNED | MDS decides to move or repair | MDS queues a `proxy_assignment4` (kind=MOVE or REPAIR) for delivery in the next PROXY_PROGRESS reply to the selected PS; creates the in-flight migration record |
-| ASSIGNED | PROXY_ACTIVE | PS picks up the assignment | PS issues OPEN + LAYOUTGET against `pa_file_fh`; MDS starts handing out the L3 composite layout with FFV2_DS_FLAGS_PROXY set on the PS entry |
+| ASSIGNED | PROXY_ACTIVE | PS picks up the assignment | PS issues `OPEN(CLAIM_PROXY)` + LAYOUTGET against `pa_file_fh`; MDS begins serving clients a layout naming the PS |
 | PROXY_ACTIVE | COMMITTING | PS issues PROXY_DONE with `pd_status=NFS4_OK` | MDS begins CB_LAYOUTRECALL fan-out to clients still on the old layout |
 | COMMITTING | DONE | All clients have LAYOUTRETURNed | MDS issues post-move layouts (L2); source DSes retired |
 | ASSIGNED | READY | MDS-initiated cancellation: MDS includes a `PROXY_OP_CANCEL_PRIOR` assignment in the next PROXY_PROGRESS reply | MDS drops the in-flight record; PS drops the assignment from its in-flight queue |
@@ -1830,9 +1940,18 @@ in its next PROXY_PROGRESS reply, with the source layout
 updated to reflect current reality -- destination DSes that
 the failed PS populated are now part of the source set -- and
 the destination layout unchanged; the replacement PS resumes
-from wherever the failed PS left off.  The MDS then issues
-CB_LAYOUTRECALL on the old layout and the replacement PS's
-layout becomes live for new LAYOUTGETs.
+from wherever the failed PS left off.
+
+Before the replacement PS's layout becomes live, the MDS
+MUST fence the failed PS: it revokes the failed PS's L3
+layout stateid (REVOKE_STATEID) and, where the DS protocol
+supports it, fences the failed PS at the source and target
+DSes.  Fencing closes the window in which a delayed write
+from a failed-but-not-dead PS could land after the
+replacement PS has taken over -- a two-PS instance of the
+write race the single-writer model otherwise prevents.  The
+MDS then issues CB_LAYOUTRECALL on the old layout and the
+replacement PS's layout becomes live for new LAYOUTGETs.
 
 If the MDS cannot find a replacement within a policy timeout,
 it MUST cancel the operation: revert to the pre-move source
@@ -1921,11 +2040,15 @@ After detecting session loss, the PS:
      issued for the resumed migration session, which the PS
      MUST persist again per the rule above).
 
-   This is the standard {{RFC8881}} layout reclaim path; no new
-   claim type, no side-channel grant signal.  The
-   PS-specific contribution is the `nc_is_registered_ps`
-   session attribute and the persisted in-flight migration
-   record on the MDS side.
+   The reclaim itself is the standard {{RFC8881}} path --
+   `OPEN_RECLAIM(CLAIM_PREVIOUS)` and `LAYOUTGET(reclaim=true)`
+   -- with no side-channel grant signal.  The new
+   `CLAIM_PROXY` claim ({{sec-claim-proxy}}) is used only for
+   the initial proxy OPEN; reclaim after a crash uses ordinary
+   `CLAIM_PREVIOUS`, which reclaims the PS's open whatever
+   claim first established it.  The PS-specific contributions
+   are the `nc_is_registered_ps` session attribute and the
+   persisted in-flight migration record on the MDS side.
 
 4. **Continue the migration** from wherever it left off.  Bytes
    already on G are preserved (the DS holds them); the PS
