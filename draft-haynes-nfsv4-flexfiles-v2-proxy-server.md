@@ -1854,28 +1854,33 @@ destination DSes for cleanup or retry.
 
 ## Cascading PS Failure
 
-Repeated PS failures on the same operation SHOULD trigger
-escalation to deployment management rather than recursive
-retry.  Recurring failures likely indicate an environmental
-issue the PS cannot work around.
+A second PS failure on the same operation SHOULD escalate to
+deployment management rather than trigger another automatic
+replacement.  Recurring failures across multiple PSes
+indicate an environmental issue no PS can work around -- an
+unreachable source dstore, a misconfiguration, or a starved
+replacement pool -- that operator attention will resolve
+sooner than another retry.
 
 ## Source DS Crash During PROXY_ACTIVE
 
-Reduces the PS's read parallelism but does not block forward
-progress as long as the erasure code can still reconstruct
-from surviving source DSes.  If the source degrades past
-reconstructibility, the operation transitions to whole-file
-repair semantics automatically: partial reconstruction
-succeeds; ranges that cannot be reconstructed terminate the
-operation with NFS4ERR_PAYLOAD_LOST.
+A source DS crash reduces the PS's read parallelism but does
+not block forward progress as long as the erasure code can
+still reconstruct the file from the surviving source DSes.
+If the source set degrades past reconstructibility, the
+operation transitions to whole-file repair semantics
+automatically: ranges that can still be reconstructed
+succeed; ranges that cannot terminate the operation with
+NFS4ERR_PAYLOAD_LOST.
 
 ## Destination DS Crash During PROXY_ACTIVE
 
-Treated as a normal DS failure on the destination side.  The
-PS acts like a client to the destination DSes: LAYOUTERROR to
-the MDS, which MAY substitute a spare or mark the destination
+A destination DS crash is handled as a normal DS failure on
+the destination side.  The PS, acting as a client to the
+destination DSes, reports LAYOUTERROR to the MDS, which MAY
+substitute a spare or mark the destination
 FFV2_DS_FLAGS_REPAIR.  The PS continues pushing to the
-remaining destinations.  Clients are unaffected.
+remaining destinations, and clients are unaffected.
 
 # MDS Crash Recovery {#sec-mds-recovery}
 
