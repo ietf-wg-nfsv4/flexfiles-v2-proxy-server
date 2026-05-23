@@ -2524,125 +2524,130 @@ question and the candidate resolutions; none of them block
 this document's core mechanism but each may reshape a detail
 of it.
 
-1.  **Multiple concurrent proxies per file.**  The design
-    assumes one proxy per file per operation.  Should two
-    proxies be allowed to pipeline a large file (proxy A
-    drives the first 1 TB, proxy B drives the next)?  The
-    motivating case is a multi-terabyte move where a single
-    proxy's bandwidth is the bottleneck; parallelizing across
-    proxies would shorten the operation proportionally.  The
-    cost is state-machine complexity (two operation ids to
-    track, partial-completion bookkeeping, range ownership
-    between proxies) and layout complexity (the client sees
-    two PS entries in ffs_data_servers and needs routing
-    rules between them).  One-proxy-per-file keeps the
-    mechanism simple; if the bandwidth case turns out to
-    dominate in practice, a follow-on extension can add
-    parallelism later without invalidating the single-proxy
-    path.
+Multiple concurrent proxies per file:
+:  The design assumes one proxy per file per operation.
+   Should two proxies be allowed to pipeline a large file
+   (proxy A drives the first 1 TB, proxy B drives the
+   next)?  The motivating case is a multi-terabyte move
+   where a single proxy's bandwidth is the bottleneck;
+   parallelizing across proxies would shorten the operation
+   proportionally.  The cost is state-machine complexity
+   (two operation ids to track, partial-completion
+   bookkeeping, range ownership between proxies) and layout
+   complexity (the client sees two PS entries in
+   ffs_data_servers and needs routing rules between them).
+   One-proxy-per-file keeps the mechanism simple; if the
+   bandwidth case turns out to dominate in practice, a
+   follow-on extension can add parallelism later without
+   invalidating the single-proxy path.
 
-2.  **Transitive proxy.**  If a file in PROXY_ACTIVE needs a
-    second move (e.g., a DS maintenance window opens while a
-    repair is already running), what happens?  Queueing the
-    second move postpones the maintenance, which may not be
-    acceptable if the maintenance window is hard.  Aborting
-    the first move wastes the repair work already done and
-    puts the file back into a degraded state.  Allowing a
-    proxy to act as the source for another proxy (a "chained"
-    proxy setup) preserves the repair progress but doubles the
-    state-machine work and introduces failure-mode compounds
-    that the current design does not cover.  The right answer
-    probably depends on operator priorities and may need to be
-    a configurable MDS policy rather than a protocol rule.
+Transitive proxy:
+:  If a file in PROXY_ACTIVE needs a second move (e.g., a
+   DS maintenance window opens while a repair is already
+   running), what happens?  Queueing the second move
+   postpones the maintenance, which may not be acceptable
+   if the maintenance window is hard.  Aborting the first
+   move wastes the repair work already done and puts the
+   file back into a degraded state.  Allowing a proxy to
+   act as the source for another proxy (a "chained" proxy
+   setup) preserves the repair progress but doubles the
+   state-machine work and introduces failure-mode compounds
+   that the current design does not cover.  The right
+   answer probably depends on operator priorities and may
+   need to be a configurable MDS policy rather than a
+   protocol rule.
 
-3.  **Migration-state retention across restart.**  The recovery
-    model leaves retention of in-flight migration state across an
-    MDS restart to the implementation; an MDS that retains nothing
-    is conformant.  Should the document nonetheless add a SHOULD
-    recommending retention, so that a reboot does not discard the
-    progress of a large move?  Production deployments would likely
-    want it; it is a quality-of-implementation recommendation only,
-    with no effect on interoperability.
+Migration-state retention across restart:
+:  The recovery model leaves retention of in-flight
+   migration state across an MDS restart to the
+   implementation; an MDS that retains nothing is
+   conformant.  Should the document nonetheless add a
+   SHOULD recommending retention, so that a reboot does not
+   discard the progress of a large move?  Production
+   deployments would likely want it; it is a
+   quality-of-implementation recommendation only, with no
+   effect on interoperability.
 
-4.  **Registration as a capability-scoped authority.**  Should
-    PROXY_REGISTRATION require a separate EXCHGID4 flag (e.g.,
-    EXCHGID4_FLAG_USE_PROXY_DS) to distinguish proxy-capable
-    DSes from generic DSes, or is the registration itself the
-    capability declaration?
+Registration as a capability-scoped authority:
+:  Should PROXY_REGISTRATION require a separate EXCHGID4
+   flag (e.g., EXCHGID4_FLAG_USE_PROXY_DS) to distinguish
+   proxy-capable DSes from generic DSes, or is the
+   registration itself the capability declaration?
 
-5.  **Richer capability advertising.**  prr_codecs covers the
-    transformation classes that matter for move / repair.
-    Features that are implementation-internal (encryption,
-    compression, alignment normalization) do not need to be
-    advertised because they do not affect the wire contract.
-    Features that DO affect the wire (e.g., support for some
-    future sparse-read or TRIM op) would warrant a richer
-    capability descriptor.  Worth revisiting when those ops
-    are defined.
+Richer capability advertising:
+:  prr_codecs covers the transformation classes that matter
+   for move / repair.  Features that are
+   implementation-internal (encryption, compression,
+   alignment normalization) do not need to be advertised
+   because they do not affect the wire contract.  Features
+   that DO affect the wire (e.g., support for some future
+   sparse-read or TRIM op) would warrant a richer
+   capability descriptor.  Worth revisiting when those ops
+   are defined.
 
-6.  **RPCSEC_GSSv3 for translating-proxy credential
-    forwarding.**  Credential forwarding under AUTH_SYS is
-    weak (uid spoofable, no integrity protection).  RPCSEC_GSSv3
-    structured privilege assertion ({{RFC7861}} Section 2.5.2)
-    is the natural strong-authentication mechanism, but its
-    deployment base in the NFSv4 community is narrow.  Should
-    the draft REQUIRE GSSv3 for translating proxies, RECOMMEND
-    it, or leave it as implementation-optional?  The answer
-    likely depends on how aggressively the WG wants to push
-    GSSv3 adoption as a side effect of standardizing this
-    mechanism.
+RPCSEC_GSSv3 for translating-proxy credential forwarding:
+:  Credential forwarding under AUTH_SYS is weak (uid
+   spoofable, no integrity protection).  RPCSEC_GSSv3
+   structured privilege assertion ({{RFC7861}}
+   Section 2.5.2) is the natural strong-authentication
+   mechanism, but its deployment base in the NFSv4
+   community is narrow.  Should the draft REQUIRE GSSv3 for
+   translating proxies, RECOMMEND it, or leave it as
+   implementation-optional?  The answer likely depends on
+   how aggressively the WG wants to push GSSv3 adoption as
+   a side effect of standardizing this mechanism.
 
-7.  **DEVICEID_REGISTRATION generalization.**
-    PROXY_REGISTRATION in this document is a proxy-specific
-    capability-advertisement op: a DS opens a session to the
-    MDS and declares that it is proxy-capable, along with
-    codec-set membership and a lease.
+DEVICEID_REGISTRATION generalization:
+:  PROXY_REGISTRATION in this document is a proxy-specific
+   capability-advertisement op: a DS opens a session to the
+   MDS and declares that it is proxy-capable, along with
+   codec-set membership and a lease.
 
-    The same mechanism has broader applicability as a generic
-    DS -> MDS capability advertisement -- a DEVICEID_REGISTRATION
-    op whose payload can carry:
+   The same mechanism has broader applicability as a
+   generic DS -> MDS capability advertisement -- a
+   DEVICEID_REGISTRATION op whose payload can carry:
 
-    -  Fault-zone coordinates (building, floor, room, rack,
-       power domain, network domain, cooling domain).  An
-       admin who needs to power down a rack can drive the MDS
-       to recall all layouts referencing DSes in that zone and
-       evacuate files via PROXY_OP_MOVE assignments before the
-       outage.
+   -  Fault-zone coordinates (building, floor, room, rack,
+      power domain, network domain, cooling domain).  An
+      admin who needs to power down a rack can drive the
+      MDS to recall all layouts referencing DSes in that
+      zone and evacuate files via PROXY_OP_MOVE assignments
+      before the outage.
 
-    -  Storage media type (SSD / HDD / tape / cloud tier), for
-       layout-policy decisions.
+   -  Storage media type (SSD / HDD / tape / cloud tier),
+      for layout-policy decisions.
 
-    -  Geographic location, for data-locality policy.
+   -  Geographic location, for data-locality policy.
 
-    -  Transport security profile (TLS-capable, required
-       mutual-TLS cert fingerprint).
+   -  Transport security profile (TLS-capable, required
+      mutual-TLS cert fingerprint).
 
-    -  Performance tier labels, for admin-assigned QoS.
+   -  Performance tier labels, for admin-assigned QoS.
 
-    -  Encryption-at-rest and compression-at-rest flags.
+   -  Encryption-at-rest and compression-at-rest flags.
 
-    -  Scheduled maintenance windows, so the MDS can
-       preemptively drain a DS before a planned outage.
+   -  Scheduled maintenance windows, so the MDS can
+      preemptively drain a DS before a planned outage.
 
-    Under this framing, PROXY_REGISTRATION is one arm of a
-    generic DEVICEID_REGISTRATION op: the proxy-capability
-    arm.  If the WG prefers the generalization, the op in this
-    document re-homes as a specialization of
-    DEVICEID_REGISTRATION, keeping its wire shape for the
-    proxy arm and adding typed entries for the other
-    capability classes.  The broader op may land in the main
-    draft, in a dedicated draft, or as an extension of this
-    document; settlement of that scoping question is the open
-    item.
+   Under this framing, PROXY_REGISTRATION is one arm of a
+   generic DEVICEID_REGISTRATION op: the proxy-capability
+   arm.  If the WG prefers the generalization, the op in
+   this document re-homes as a specialization of
+   DEVICEID_REGISTRATION, keeping its wire shape for the
+   proxy arm and adding typed entries for the other
+   capability classes.  The broader op may land in the main
+   draft, in a dedicated draft, or as an extension of this
+   document; settlement of that scoping question is the
+   open item.
 
-    The op direction (DS -> MDS) is the same for both
-    specialized PROXY_REGISTRATION and generalized
-    DEVICEID_REGISTRATION; that direction does not today
-    exist as a session in the main draft's tight-coupling
-    control plane (which runs MDS -> DS).  A resolution of
-    this item also settles whether the proxy-server draft
-    introduces a new DS-initiated session or whether the
-    generalized version does.
+   The op direction (DS -> MDS) is the same for both
+   specialized PROXY_REGISTRATION and generalized
+   DEVICEID_REGISTRATION; that direction does not today
+   exist as a session in the main draft's tight-coupling
+   control plane (which runs MDS -> DS).  A resolution of
+   this item also settles whether the proxy-server draft
+   introduces a new DS-initiated session or whether the
+   generalized version does.
 
 # Deferred
 
