@@ -2306,52 +2306,52 @@ and has no FH cache) there is no client whose credentials the PS
 could forward.  Deployments have two choices for how the PS
 acquires namespace shape:
 
-1.  **Grant a narrow traversal privilege.**  The MDS MAY treat
-    a registered PS's service identity as authorized for
-    LOOKUP, LOOKUPP, PUTFH, PUTROOTFH, GETFH, and SEQUENCE on
-    the PS <-> MDS session without applying the MDS's
-    export-rule filtering that would normally gate those
-    names.  This is strictly a structural privilege: it
-    permits the PS to see that paths exist and to obtain their
-    filehandles, but grants no data access.  All operations
-    that carry or require data authorization (OPEN, READ,
-    WRITE, LAYOUTGET, GETATTR of privileged attributes, etc.)
-    MUST still run under the rules of
-    {{sec-credential-forwarding}}: forwarded client
-    credentials for client-initiated operations, and PS
-    service identity only for control-plane operations.
+Grant a narrow traversal privilege:
+:  The MDS MAY treat a registered PS's service identity as
+   authorized for LOOKUP, LOOKUPP, PUTFH, PUTROOTFH, GETFH,
+   and SEQUENCE on the PS <-> MDS session without applying
+   the MDS's export-rule filtering that would normally gate
+   those names.  This is strictly a structural privilege:
+   it permits the PS to see that paths exist and to obtain
+   their filehandles, but grants no data access.  All
+   operations that carry or require data authorization
+   (OPEN, READ, WRITE, LAYOUTGET, GETATTR of privileged
+   attributes, etc.) MUST still run under the rules of
+   {{sec-credential-forwarding}}: forwarded client
+   credentials for client-initiated operations, and PS
+   service identity only for control-plane operations.
 
-    A deployment that grants this privilege discloses the
-    MDS's namespace shape to the PS's service identity --
-    specifically, names that the PS's source address would
-    not be able to see through the MDS's normal export
-    filtering.  Deployments SHOULD audit traversal compounds
-    on registered-PS sessions so the disclosure is reviewable;
-    the MDS SHOULD log each LOOKUP / GETFH that benefits from
-    the bypass.
+   A deployment that grants this privilege discloses the
+   MDS's namespace shape to the PS's service identity --
+   specifically, names that the PS's source address would
+   not be able to see through the MDS's normal export
+   filtering.  Deployments SHOULD audit traversal compounds
+   on registered-PS sessions so the disclosure is
+   reviewable; the MDS SHOULD log each LOOKUP / GETFH that
+   benefits from the bypass.
 
-2.  **Do not grant the privilege.**  The PS is required to
-    translate every client-originated LOOKUP into a separate
-    LOOKUP against the MDS under the forwarding client's
-    credentials, caching only what the client's credentials
-    authorized the MDS to return.  This eliminates the
-    namespace-shape disclosure but costs an extra MDS
-    round-trip per client LOOKUP-miss and leaves the PS
-    unable to pre-discover exports.
+Do not grant the privilege:
+:  The PS is required to translate every client-originated
+   LOOKUP into a separate LOOKUP against the MDS under the
+   forwarding client's credentials, caching only what the
+   client's credentials authorized the MDS to return.  This
+   eliminates the namespace-shape disclosure but costs an
+   extra MDS round-trip per client LOOKUP-miss and leaves
+   the PS unable to pre-discover exports.
 
 This document does not normatively prefer one approach over
 the other.  Implementations SHOULD document which they use;
 deployment guidance for the common combined DS+PS case is
-that option (1) is expected and the narrower privilege is
+that granting the privilege is the expected choice,
 acceptable given the PS is already a trusted control-plane
 peer of the MDS.
 
 The traversal privilege is distinct from and narrower than
-root_squash bypass.  A forwarded-uid-0 client operation (OPEN,
-READ, etc.) under option (1) is still subject to normal
-root_squash handling on the PS's source-address rule at the
-MDS; the traversal privilege applies only to the six ops
-enumerated above.
+root_squash bypass.  A forwarded-uid-0 client operation
+(OPEN, READ, etc.), even when the privilege is granted, is
+still subject to normal root_squash handling on the PS's
+source-address rule at the MDS; the privilege applies only
+to the six ops enumerated above.
 
 ## PS-Side Policy Enforcement (informative) {#sec-ps-side-policy-enforcement}
 
