@@ -315,11 +315,11 @@ additional mirrors") requires transforming a file's layout
 without user visibility.  The transformation is purely a layout
 change; the file contents are unchanged except at the shard
 level.  The MOVE assignment carries the new layout's geometry
-and coding type via the destination dstore identifier in
+and coding type via the destination deviceid in
 `proxy_assignment4`; the proxy reshapes the file's shards to
 match.  Because the transformation type (encode / decode /
 transcode) is entirely specified by the (source, destination)
-dstore pair plus the file's recorded layout type, the
+deviceid pair plus the file's recorded layout type, the
 assignment does not need a separate transformation-class
 field.
 
@@ -549,7 +549,7 @@ multi-PS and partial-range extensions listed as out of scope
 
 ### Two-Layout State on the MDS Side {#sec-two-layout-state}
 
-For each file F whose mirror on a draining dstore D is being
+For each file F whose mirror on a draining DS D is being
 migrated, the MDS keeps three logical layout records.  Only
 L3 backs a client-facing layout; L1 and L2 are MDS-internal
 bookkeeping for the duration of the migration.
@@ -655,7 +655,7 @@ LAYOUTRETURN + PROXY_DONE in a single fore-channel compound
 on the same session.  The MDS may at any time retract an
 assignment that the PS has not yet acknowledged via
 OPEN+LAYOUTGET by including a `PROXY_OP_CANCEL_PRIOR`
-assignment for the same `(pa_file_fh, pa_target_dstore_id)`
+assignment for the same `(pa_file_fh, pa_target_deviceid)`
 pair in a subsequent PROXY_PROGRESS reply; the PS may cancel
 work it has already started via the fore-channel
 PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
@@ -741,7 +741,7 @@ The MDS may decide to retract an assignment.  Two cases:
 1. **Assignment not yet acknowledged by the PS.**  The MDS
    includes a `PROXY_OP_CANCEL_PRIOR` assignment in the next
    PROXY_PROGRESS reply, naming the same `(pa_file_fh,
-   target_dstore_id)` pair as the prior MOVE / REPAIR
+   pa_target_deviceid)` pair as the prior MOVE / REPAIR
    assignment.  The PS, which has not yet OPEN'd the file,
    simply drops the prior assignment from its in-flight queue.
 2. **Assignment acknowledged and in flight.**  The MDS
@@ -1098,8 +1098,8 @@ through silence is insufficient.
 ///     proxy_op_kind4    pa_kind;
 ///     proxy_stateid4    pa_stateid;
 ///     nfs_fh4           pa_file_fh;
-///     uint64_t          pa_source_dstore_id;
-///     uint64_t          pa_target_dstore_id;
+///     deviceid4         pa_source_deviceid;
+///     deviceid4         pa_target_deviceid;
 ///     opaque            pa_descriptor<>;
 /// };
 ///
@@ -1140,9 +1140,9 @@ The MDS returns work assignments inline in
 `ppr_assignments<>`.  A PS that does not want new work simply
 ignores the assignments past its in-flight cap; the MDS does
 not retract assignments once delivered.  Each assignment names
-a single file (`pa_file_fh`), the source and target dstores
+a single file (`pa_file_fh`), the source and target DSes
 the migration moves data between
-(`pa_source_dstore_id` / `pa_target_dstore_id`), and a
+(`pa_source_deviceid` / `pa_target_deviceid`), and a
 kind-specific opaque descriptor (`pa_descriptor<>`) for future
 extensions (for example, a precomputed source-layout
 descriptor so the PS can dial source DSes without a second
@@ -1156,10 +1156,10 @@ eventual PROXY_DONE / PROXY_CANCEL.
 The `pa_kind` discriminates the work type:
 
 - `PROXY_OP_MOVE`: drain or migrate the file's data between
-  the named dstores.  `pa_stateid` is the proxy_stateid the
+  the named DSes.  `pa_stateid` is the proxy_stateid the
   PS will reference in PROXY_DONE / PROXY_CANCEL.
 - `PROXY_OP_REPAIR`: reconstruct a missing or corrupt mirror
-  on `pa_target_dstore_id` from the surviving mirrors.
+  on `pa_target_deviceid` from the surviving mirrors.
   `pa_stateid` is the proxy_stateid the PS will reference in
   PROXY_DONE / PROXY_CANCEL.
 - `PROXY_OP_CANCEL_PRIOR`: the MDS rescinds an assignment it
@@ -1410,15 +1410,15 @@ make any behavioral distinction on the wire.
 When multiple PSes are registered against the same MDS, the
 MDS coordinates assignment fan-out under one hard invariant:
 at any time, at most one migration MUST be in flight for a
-given `(pa_file_fh, target_dstore)` pair.  The MDS MUST NOT
-assign a migration whose `(pa_file_fh, target_dstore)` matches
+given `(pa_file_fh, pa_target_deviceid)` pair.  The MDS MUST NOT
+assign a migration whose `(pa_file_fh, pa_target_deviceid)` matches
 that of an in-flight migration.
 
 How the MDS chooses among eligible PSes -- by load, locality,
 fault domain, capability match, or any combination -- is an
 implementation matter.  The protocol constrains only the
 outcome: the PS that receives the assignment is registered at
-delivery time, and the `(pa_file_fh, target_dstore)` invariant
+delivery time, and the `(pa_file_fh, pa_target_deviceid)` invariant
 holds.
 
 When a registered PS loses its session -- its lease expires,
@@ -1426,7 +1426,7 @@ or a competing PS takes its registration slot in a squat --
 the MDS MUST treat each migration the PS had in flight as if
 PROXY_DONE(FAIL) had been issued: L1 stays in force, L2 and
 L3 are discarded.  The MDS MAY then reassign the work to
-another eligible PS; the `(pa_file_fh, target_dstore)`
+another eligible PS; the `(pa_file_fh, pa_target_deviceid)`
 invariant continues to hold across reassignment.
 
 A PS that reconnects with the same `client_owner4`, and so
@@ -1602,7 +1602,7 @@ the PS performs during the byte-shoveling phase.
 
 ## Drain interaction
 
-The DRAINING state on dstore D is observable to external
+The DRAINING state on D is observable to external
 clients only through the absence of new layouts naming D:
 while D is DRAINING, the MDS does not place D in any new
 mirror set.  Before the migration becomes active for an
@@ -1858,7 +1858,7 @@ A second PS failure on the same operation SHOULD escalate to
 deployment management rather than trigger another automatic
 replacement.  Recurring failures across multiple PSes
 indicate an environmental issue no PS can work around -- an
-unreachable source dstore, a misconfiguration, or a starved
+unreachable source DS, a misconfiguration, or a starved
 replacement pool -- that operator attention will resolve
 sooner than another retry.
 
@@ -1922,7 +1922,7 @@ following steps in order:
    permanently stale; see {{sec-proxy-stateid}}).  For each
    re-delivered assignment, the PS attempts to match it to
    a retained sidecar entry by `(pa_file_fh,
-   target_dstore)`.  Matched assignments proceed to step 4;
+   pa_target_deviceid)`.  Matched assignments proceed to step 4;
    unmatched assignments are handled as fresh assignments.
 
 4. **Per-file layout reclaim**, for each matched assignment:
@@ -1951,10 +1951,21 @@ following steps in order:
    are done.
 
 Dropped migrations rejoin the MDS's normal assignment path:
-a dstore still DRAINING when recovery settles will, in due
+a DS still DRAINING when recovery settles will, in due
 course, attract a fresh `proxy_assignment4` -- to this PS or
-another -- under the `(pa_file_fh, target_dstore)`
+another -- under the `(pa_file_fh, pa_target_deviceid)`
 invariant of {{sec-multi-ps-fanout}}.
+
+The sidecar match in step 3 is best-effort across an MDS
+reboot.  `deviceid4` is server-scoped and MAY change across a
+restart per {{RFC8881}} S3.3.7; a target deviceid the MDS
+reassigns on restart will not match the PS's retained sidecar
+entry, the PS will not recognize the re-delivery as the same
+migration, and the affected sidecar entries are dropped per
+step 5.  The autopilot re-drives the work as a fresh
+assignment.  Implementations that preserve target deviceids
+across restart will resume mid-flight; those that do not will
+re-drive from scratch -- both are conformant.
 
 ### Retention Requirement
 
