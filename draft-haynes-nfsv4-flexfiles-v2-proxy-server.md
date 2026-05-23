@@ -2383,10 +2383,22 @@ policy) and MUST support a refresh path so PSes see rule changes
 within a bounded time.
 
 # Implementations {#sec-implementations}
+{: removeInRFC="true"}
 
-This section documents the publicly available implementation
-the editors are aware of at the time of writing, in line with
-{{?RFC7942}}.
+This section records the status of known implementations of
+the protocol defined by this specification at the time of
+posting of this Internet-Draft, and is based on a proposal
+described in {{?RFC7942}}.  The description of
+implementations in this section is intended to assist the
+IETF in its decision processes in progressing drafts to
+RFCs.  Please note that the listing of any individual
+implementation here does not imply endorsement by the IETF.
+Furthermore, no effort has been spent to verify the
+information presented here that was supplied by IETF
+contributors.  This is not intended as, and must not be
+construed to be, a catalog of available implementations or
+their features.  Readers are advised to note that other
+implementations may exist.
 
 ## reffs
 
@@ -2507,6 +2519,7 @@ This is the same mechanism {{I-D.haynes-nfsv4-flexfiles-v2}}
 defines for any DS in a tightly coupled deployment.
 
 # Open Questions {#sec-open-questions}
+{: removeInRFC="true"}
 
 The design is substantially complete but still has open
 points that need Working Group input or internal agreement
@@ -2650,6 +2663,7 @@ DEVICEID_REGISTRATION generalization:
    generalized version does.
 
 # Deferred
+{: removeInRFC="true"}
 
 The items below are explicit protocol extensions identified
 during design that this revision does not specify.  They
