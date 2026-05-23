@@ -1671,17 +1671,24 @@ array of per-instance deltas, each delta describing a
 transformation on one position within one segment of
 `layout_segments`.  Four instance states are useful:
 
--  `STABLE` -- unchanged; client writes go here directly.
--  `DRAINING` -- a slot being decommissioned; under
-   omit-and-replace, the LAYOUTGET view-build path omits this
-   slot and replaces it with the matching INCOMING.
--  `INCOMING` -- a new slot the PS is filling; under
-   omit-and-replace, the LAYOUTGET view-build path emits this
-   slot in place of the matching DRAINING.
--  `INTERPOSED` -- a slot whose visible endpoint is the PS,
-   with the PS internally fanning writes out to one or more
-   target DSes.  Used by keep-and-shadow (forward-compat;
-   not produced by the wire ops in this revision).
+`STABLE`:
+:  unchanged; client writes go here directly.
+
+`DRAINING`:
+:  a slot being decommissioned; under omit-and-replace, the
+   LAYOUTGET view-build path omits this slot and replaces
+   it with the matching INCOMING.
+
+`INCOMING`:
+:  a new slot the PS is filling; under omit-and-replace, the
+   LAYOUTGET view-build path emits this slot in place of the
+   matching DRAINING.
+
+`INTERPOSED`:
+:  a slot whose visible endpoint is the PS, with the PS
+   internally fanning writes out to one or more target DSes.
+   Used by keep-and-shadow (forward-compat; not produced by
+   the wire ops in this revision).
 
 The current published layout (`layout_segments`) is built
 through the deltas: when LAYOUTGET runs while a migration
