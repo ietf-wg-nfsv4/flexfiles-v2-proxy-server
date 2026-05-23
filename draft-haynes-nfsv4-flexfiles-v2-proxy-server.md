@@ -1567,20 +1567,23 @@ and no component name, in the manner of `CLAIM_FH`.
 
 The operand carries two values:
 
-- `ocp_proxy_stateid` is the `proxy_stateid4` the MDS minted
-  for this assignment and returned in the PROXY_PROGRESS work
-  assignment ({{sec-PROXY_PROGRESS}}).  It is the correlator
-  that identifies this OPEN as the proxy OPEN for a specific
-  assignment; the MDS does not infer proxy intent from the
-  session.
-- `ocp_ps_fh` is the filehandle under which the PS will serve
-  the file to clients: the data-server filehandle that
-  appears in the layout the MDS hands a codec-incapable
-  client, and the filehandle a non-pNFS client obtains by
-  LOOKUP against the PS.  Only the PS can mint this
-  filehandle; it is opaque to the MDS, which records it and
-  copies it verbatim into the layouts it issues.  Carrying it
-  in the OPEN binds it atomically with the proxy OPEN.
+`ocp_proxy_stateid`:
+:  the `proxy_stateid4` the MDS minted for this assignment
+   and returned in the PROXY_PROGRESS work assignment
+   ({{sec-PROXY_PROGRESS}}).  It is the correlator that
+   identifies this OPEN as the proxy OPEN for a specific
+   assignment; the MDS does not infer proxy intent from the
+   session.
+
+`ocp_ps_fh`:
+:  the filehandle under which the PS will serve the file to
+   clients: the data-server filehandle that appears in the
+   layout the MDS hands a codec-incapable client, and the
+   filehandle a non-pNFS client obtains by LOOKUP against
+   the PS.  Only the PS can mint this filehandle; it is
+   opaque to the MDS, which records it and copies it
+   verbatim into the layouts it issues.  Carrying it in the
+   OPEN binds it atomically with the proxy OPEN.
 
 The MDS MUST verify that `ocp_proxy_stateid` is valid, that
 it names an outstanding assignment, that the assignment was
