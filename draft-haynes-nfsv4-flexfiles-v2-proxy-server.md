@@ -1164,21 +1164,26 @@ eventual PROXY_DONE / PROXY_CANCEL.
 
 The `pa_kind` discriminates the work type:
 
-- `PROXY_OP_MOVE`: drain or migrate the file's data between
-  the named DSes.  `pa_stateid` is the proxy_stateid the
-  PS will reference in PROXY_DONE / PROXY_CANCEL.
-- `PROXY_OP_REPAIR`: reconstruct a missing or corrupt mirror
-  on `pa_target_deviceid` from the surviving mirrors.
-  `pa_stateid` is the proxy_stateid the PS will reference in
-  PROXY_DONE / PROXY_CANCEL.
-- `PROXY_OP_CANCEL_PRIOR`: the MDS rescinds an assignment it
-  delivered in a prior PROXY_PROGRESS reply, before the PS
-  acknowledged it via OPEN+LAYOUTGET.  `pa_stateid` is the
-  proxy_stateid of the assignment being rescinded; the PS
-  MUST drop any in-progress work tagged with this
-  proxy_stateid and MUST NOT issue PROXY_DONE / PROXY_CANCEL
-  for it (the MDS has already cleaned up the in-flight
-  migration record on its side and retired the proxy_stateid).
+`PROXY_OP_MOVE`:
+:  drain or migrate the file's data between the named DSes.
+   `pa_stateid` is the proxy_stateid the PS will reference
+   in PROXY_DONE / PROXY_CANCEL.
+
+`PROXY_OP_REPAIR`:
+:  reconstruct a missing or corrupt mirror on
+   `pa_target_deviceid` from the surviving mirrors.
+   `pa_stateid` is the proxy_stateid the PS will reference
+   in PROXY_DONE / PROXY_CANCEL.
+
+`PROXY_OP_CANCEL_PRIOR`:
+:  the MDS rescinds an assignment it delivered in a prior
+   PROXY_PROGRESS reply, before the PS acknowledged it via
+   OPEN+LAYOUTGET.  `pa_stateid` is the proxy_stateid of the
+   assignment being rescinded; the PS MUST drop any
+   in-progress work tagged with this proxy_stateid and MUST
+   NOT issue PROXY_DONE / PROXY_CANCEL for it (the MDS has
+   already cleaned up the in-flight migration record on its
+   side and retired the proxy_stateid).
 
 For each MOVE / REPAIR assignment, the PS picks the work up
 by issuing a normal NFSv4 OPEN+LAYOUTGET against `pa_file_fh`
