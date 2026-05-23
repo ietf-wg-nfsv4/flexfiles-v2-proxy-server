@@ -2046,8 +2046,7 @@ move operations.
 
 When the source mirror is an NFSv3 DS, the PS reads from it
 using NFSv3 semantics and writes to the NFSv4.2 destination
-using CHUNK semantics.  This is the same pattern
-{{I-D.haynes-nfsv4-flexfiles-v2}} uses for InBand I/O.
+using CHUNK semantics.
 
 # Security Considerations {#sec-security}
 
