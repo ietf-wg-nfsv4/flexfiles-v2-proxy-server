@@ -1228,17 +1228,20 @@ PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
 The PS-to-MDS protocol uses two new fore-channel operations
 in addition to the extended PROXY_PROGRESS:
 
-- `PROXY_DONE` (op 95): PS reports terminal success or failure
-  on a specific in-flight migration.  The MDS uses the
-  ppd_status to atomically commit (success: swap the file's
-  active layout from L1 to L2) or roll back (failure: keep L1,
-  drop L2/G).
-- `PROXY_CANCEL` (op 96): PS aborts a work item it was
-  assigned but cannot complete (e.g., source DS becomes
-  unreachable, PS resource exhaustion).  The MDS treats this
-  as PROXY_DONE with a fail-equivalent status: rolls back to
-  L1, drops L2/G, frees the assignment for re-assignment by a
-  later PROXY_PROGRESS poll.
+`PROXY_DONE` (op 95):
+:  PS reports terminal success or failure on a specific
+   in-flight migration.  The MDS uses the ppd_status to
+   atomically commit (success: swap the file's active layout
+   from L1 to L2) or roll back (failure: keep L1, drop
+   L2/G).
+
+`PROXY_CANCEL` (op 96):
+:  PS aborts a work item it was assigned but cannot complete
+   (e.g., source DS becomes unreachable, PS resource
+   exhaustion).  The MDS treats this as PROXY_DONE with a
+   fail-equivalent status: rolls back to L1, drops L2/G,
+   frees the assignment for re-assignment by a later
+   PROXY_PROGRESS poll.
 
 Both operations identify the affected migration by layout
 stateid.  The PS acquired this stateid earlier when it issued
