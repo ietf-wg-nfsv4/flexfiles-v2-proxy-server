@@ -595,6 +595,12 @@ writes both D and G, and because the PS is the only writer
 they converge to the same byte image with no inter-writer
 race.
 
+A source mirror MAY be an NFSv3 DS.  When it is, the PS
+reads from it using NFSv3 semantics and writes the NFSv4.2
+destination using CHUNK semantics; the asymmetric-protocol
+bridging is the PS's responsibility and is not visible to
+the client.
+
 ### Pinned definitions
 
 - L1.mirrors = the file's pre-migration mirror set, includes D
@@ -1457,6 +1463,19 @@ ownership of its in-flight migrations; no reassignment is
 needed.  The PS reclaims its layouts via the MDS-recovery
 path in {{sec-mds-recovery}}.
 
+A host that does not implement the proxy server role simply
+does not call PROXY_REGISTRATION and is never selected for
+a MOVE or REPAIR assignment.  A deployment with no
+registered PS falls back to per-chunk CB_CHUNK_REPAIR for
+single-shard repair, to admin-coordinated offline procedures
+for policy transitions and DS evacuation, and to blocking DS
+maintenance -- the DS cannot drain through a PS, so it must
+remain reachable to clients throughout its service life.
+
+Deployments SHOULD ensure at least one registered PS exists
+per failure domain to avoid a single point of failure on
+move operations.
+
 # Layout Shape During a Proxy Operation {#sec-layout-shape}
 
 The layout the MDS hands out to clients while a proxy
@@ -2039,46 +2058,6 @@ reclaim returns `NFS4ERR_NO_GRACE` / `NFS4ERR_RECLAIM_BAD`
 -- and the autopilot is free to re-drive the work as a
 fresh assignment.  No proxy-specific signalling beyond
 standard NFSv4 reclaim errors and `PROXY_CANCEL` is needed.
-
-# Backward Compatibility
-
-This section addresses client/DS compatibility with the
-proxy-server protocol.
-
-## Clients
-
-An FFv2-supporting client needs no proxy-specific code: a
-proxy-routed layout arrives as a single-DS FFv2 layout
-indistinguishable from any other single-DS layout the client
-might receive.  No client-side version negotiation is
-required.
-
-Clients that require strict per-DS identity checking (e.g.,
-"the layout's DS must match a pre-allowlisted fingerprint")
-should extend their allowlist to include registered proxy
-servers.  This is a deployment concern, not a protocol one.
-
-## Data Servers
-
-A host that does not implement the proxy server role simply
-does not call PROXY_REGISTRATION and is never selected for a
-MOVE or REPAIR assignment.  A deployment with no
-registered PS falls back to per-chunk CB_CHUNK_REPAIR for
-single-shard repair, to admin-coordinated offline procedures
-for policy transitions and DS evacuation, and to blocking
-DS maintenance -- the DS cannot drain through a PS, so it
-must remain reachable to clients throughout its service
-life.
-
-Deployments SHOULD ensure at least one registered PS exists
-per failure domain to avoid a single point of failure on
-move operations.
-
-## NFSv3 Source DSes
-
-When the source mirror is an NFSv3 DS, the PS reads from it
-using NFSv3 semantics and writes to the NFSv4.2 destination
-using CHUNK semantics.
 
 # Security Considerations {#sec-security}
 
