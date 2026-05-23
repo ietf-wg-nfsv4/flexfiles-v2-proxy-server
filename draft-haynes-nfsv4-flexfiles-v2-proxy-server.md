@@ -2173,75 +2173,75 @@ The normative requirements below apply whenever a PS is
 translating client-initiated file I/O (as distinct from
 PS-driven move / repair work, which runs under the PS's own
 authority on directives from the MDS).  They form a cohesive
-set: credential pass-through (rule 1) is the core
-requirement; no-squash-inversion (rule 2) closes the most
-common way rule 1 can be implemented incorrectly;
-authorization-remains-with-MDS (rule 3) names the
-responsibility on the MDS side of the same contract;
-service-identity-is-for-the-control-plane (rule 4) draws the
-line between the op paths where the PS uses its own
-credentials and the op paths where it does not; and the
-failure-mode rule (rule 5) specifies the correct refusal
-behaviour rather than letting a silent fall-through become
-the escape hatch.
+set: credential pass-through is the core requirement;
+no-squash-inversion closes the most common way pass-through
+can be implemented incorrectly;
+authorization-remains-with-MDS names the responsibility on
+the MDS side of the same contract;
+service-identity-is-for-the-control-plane draws the line
+between the op paths where the PS uses its own credentials
+and the op paths where it does not; and the failure-mode
+rule specifies the correct refusal behaviour rather than
+letting a silent fall-through become the escape hatch.
 
-1.  **Credential pass-through.**  The PS MUST present the
-    client's credentials (RPC auth flavor and principal) on
-    every MDS or DS operation it issues as a consequence of a
-    client-initiated request.  Specifically, a client `READ`
-    that the PS expands into `LAYOUTGET` + `CHUNK_READ` MUST
-    carry the client's credentials on both the `LAYOUTGET`
-    against the MDS and the `CHUNK_READ` against the DSes.
-    The PS MUST NOT substitute its own service identity for
-    client-initiated operations.
+Credential pass-through:
+:  The PS MUST present the client's credentials (RPC auth
+   flavor and principal) on every MDS or DS operation it
+   issues as a consequence of a client-initiated request.
+   Specifically, a client `READ` that the PS expands into
+   `LAYOUTGET` + `CHUNK_READ` MUST carry the client's
+   credentials on both the `LAYOUTGET` against the MDS and
+   the `CHUNK_READ` against the DSes.  The PS MUST NOT
+   substitute its own service identity for client-initiated
+   operations.
 
-2.  **No squash inversion.**  If the client arrives with a
-    root-squashed identity (for example, uid 0 mapped to
-    nobody by the NFSv3 export configuration on the
-    client-facing side of the PS), the PS MUST preserve the
-    squashed identity when forwarding.  The PS MUST NOT
-    translate a client's squashed credentials back into
-    unsquashed root, even though the PS's own identity is
-    typically unsquashed.
+No squash inversion:
+:  If the client arrives with a root-squashed identity (for
+   example, uid 0 mapped to nobody by the NFSv3 export
+   configuration on the client-facing side of the PS), the
+   PS MUST preserve the squashed identity when forwarding.
+   The PS MUST NOT translate a client's squashed
+   credentials back into unsquashed root, even though the
+   PS's own identity is typically unsquashed.
 
-3.  **Authorization remains with the MDS.**  When a
-    client-initiated operation reaches the MDS over a PS <->
-    MDS
-    session, the MDS MUST use the RPC credentials carried on
-    that compound for authorization and MUST NOT substitute
-    the PS's session-level identity.  Equivalently: the MDS
-    performs access-control checks against the forwarded
-    client credentials, not against the PS's service
-    identity, for any client-initiated file operation.  The
-    PS is a translator, not an authority.  This is what
-    prevents PS deployment from becoming a blanket ACL
-    override.
+Authorization remains with the MDS:
+:  When a client-initiated operation reaches the MDS over a
+   PS <-> MDS session, the MDS MUST use the RPC credentials
+   carried on that compound for authorization and MUST NOT
+   substitute the PS's session-level identity.
+   Equivalently: the MDS performs access-control checks
+   against the forwarded client credentials, not against
+   the PS's service identity, for any client-initiated file
+   operation.  The PS is a translator, not an authority.
+   This is what prevents PS deployment from becoming a
+   blanket ACL override.
 
-4.  **PS service identity is for the control plane only.**
-    The PS MAY, and typically MUST, use its own service
-    identity for:
-    -  The MDS <-> PS session (the session the PS opens to
-       the MDS, on which PROXY_REGISTRATION, PROXY_PROGRESS,
-       PROXY_DONE, and PROXY_CANCEL all flow on the
-       fore-channel; the session's back-channel is not used
-       by this draft).
-    -  Peer-DS session setup for PS-driven data movement
-       (reading source DSes, writing destination DSes under
-       a MOVE assignment the MDS has delivered via
-       PROXY_PROGRESS).
-    -  PS housekeeping.
+PS service identity is for the control plane only:
+:  The PS MAY, and typically MUST, use its own service
+   identity for:
 
-    The PS's service identity MUST NOT be used for
-    client-initiated file data operations.
+   -  The MDS <-> PS session (the session the PS opens to
+      the MDS, on which PROXY_REGISTRATION, PROXY_PROGRESS,
+      PROXY_DONE, and PROXY_CANCEL all flow on the
+      fore-channel; the session's back-channel is not used
+      by this draft).
+   -  Peer-DS session setup for PS-driven data movement
+      (reading source DSes, writing destination DSes under
+      a MOVE assignment the MDS has delivered via
+      PROXY_PROGRESS).
+   -  PS housekeeping.
 
-5.  **Failure mode on missing credentials.**  If the PS
-    cannot forward a client's credentials for some reason
-    (e.g., the client presented AUTH_NONE, or the
-    client-facing side used a security flavor the PS cannot
-    propagate), the PS MUST reject the client operation with
-    the equivalent of NFS4ERR_ACCESS (or NFS3ERR_ACCES for
-    NFSv3 clients).  The PS MUST NOT fall back to serving the
-    operation under its own identity.
+   The PS's service identity MUST NOT be used for
+   client-initiated file data operations.
+
+Failure mode on missing credentials:
+:  If the PS cannot forward a client's credentials for some
+   reason (e.g., the client presented AUTH_NONE, or the
+   client-facing side used a security flavor the PS cannot
+   propagate), the PS MUST reject the client operation with
+   the equivalent of NFS4ERR_ACCESS (or NFS3ERR_ACCES for
+   NFSv3 clients).  The PS MUST NOT fall back to serving
+   the operation under its own identity.
 
 Deployment-level requirements:
 
