@@ -747,15 +747,17 @@ degraded.  Terminal outcomes:
 
 The MDS may decide to retract an assignment.  Two cases:
 
-1. **Assignment not yet acknowledged by the PS.**  The MDS
-   includes a `PROXY_OP_CANCEL_PRIOR` assignment in the next
-   PROXY_PROGRESS reply, naming the same `(pa_file_fh,
-   pa_target_deviceid)` pair as the prior MOVE / REPAIR
-   assignment.  The PS, which has not yet OPEN'd the file,
-   simply drops the prior assignment from its in-flight queue.
-2. **Assignment acknowledged and in flight.**  The MDS
-   internally aborts the migration and discards the in-flight
-   record; the PS's eventual PROXY_DONE returns
+Assignment not yet acknowledged by the PS:
+:  The MDS includes a `PROXY_OP_CANCEL_PRIOR` assignment in
+   the next PROXY_PROGRESS reply, naming the same
+   `(pa_file_fh, pa_target_deviceid)` pair as the prior MOVE
+   / REPAIR assignment.  The PS, which has not yet OPEN'd
+   the file, simply drops the prior assignment from its
+   in-flight queue.
+
+Assignment acknowledged and in flight:
+:  The MDS internally aborts the migration and discards the
+   in-flight record; the PS's eventual PROXY_DONE returns
    NFS4ERR_BAD_STATEID (the L3 layout stateid no longer
    resolves to a record), and the PS abandons the work and
    releases its OPEN.  The MDS may also let the PS's
