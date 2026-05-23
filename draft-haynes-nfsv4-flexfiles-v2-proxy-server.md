@@ -1885,111 +1885,117 @@ remaining destinations, and clients are unaffected.
 # MDS Crash Recovery {#sec-mds-recovery}
 
 Clients and the PS detect MDS session loss and enter RECLAIM
-per {{RFC8881}} S8.4 / S10.2.1.  Across an MDS restart the
-recovery process depends on the MDS recognizing, during the
-grace period, three independent things:
+per {{RFC8881}} S8.4 / S10.2.1.  The PS's recovery extends
+the standard NFSv4.1 client-recovery sequence with one
+proxy-specific step -- re-registration -- and one explicit
+safety rule: if the PS cannot reclaim a layout for a
+migration it had in flight, the PS drops that migration
+rather than continuing with stale state.
 
-1. **Client identity** for every NFSv4 client, including the PS.
-   This is the standard NFSv4 client-state recovery: the PS's
-   `client_owner4` and assigned `clientid4` survive MDS reboot.
-2. **The `nc_is_registered_ps` attribute** on the PS's client
-   record.  After reboot the MDS knows the PS was previously
-   registered without re-issuing PROXY_REGISTRATION.
-3. **Per-file in-flight migration records**:
-   `{pa_file_fh, source_dstore, target_dstore, owning_PS_clientid,
-   started_at}`.  Keyed on `clientid` (stable across PS-process
-   restarts that preserve `client_owner4`), NOT on the layout
-   stateid (which is volatile per-boot).
+## PS Recovery Sequence {#sec-ps-recovery}
 
-How the MDS retains these across a restart -- commit to stable
-storage, reconstruction, or otherwise -- is an implementation
-matter, exactly as {{RFC8881}} leaves server lock-state
-persistence unspecified.  What this document standardizes is the
-reclaim process below and the behavior when a migration record
-cannot be matched ({{sec-lost-migration-records}}); an MDS that
-retains nothing is conformant -- its PSes fail to reclaim and the
-autopilot re-drives the affected moves.
+The PS, after detecting MDS session loss, performs the
+following steps in order:
 
-## PS Recovery Sequence
+1. **EXCHANGE_ID + CREATE_SESSION** with the PS's prior
+   `client_owner4`.  Standard NFSv4.1 client recovery; the
+   PS's `clientid4` is restored when the MDS recognizes the
+   prior `client_owner4`.
 
-After detecting session loss, the PS:
+2. **PROXY_REGISTRATION** with the PS's prior
+   `prr_registration_id`.  Re-registration is idempotent:
+   the PS sends the same fields it would for a first-time
+   registration and the MDS accepts them as re-establishing
+   the PS role on this session.  The MDS does not assume
+   that it retained any record of this PS being registered
+   previously; PROXY_REGISTRATION is the PS's explicit
+   assertion of PS-ness for this session.  Until this step
+   completes, the MDS treats the client as an ordinary
+   NFSv4 client and MUST NOT deliver proxy assignments to
+   it.
 
-1. **Re-establishes the session** with EXCHANGE_ID using its
-   prior `client_owner4` (recovers the same `clientid4`),
-   followed by CREATE_SESSION.
-2. **Issues RECLAIM_COMPLETE** to enter the reclaim phase.
-   PROXY_REGISTRATION is NOT re-issued -- the
-   `nc_is_registered_ps` flag is sufficient.
-3. **Per-file recovery** for each in-flight migration the PS
-   was working on uses the standard NFSv4 reclaim path with one
-   PS-side retention requirement:
-   - A PS MUST be able to supply each in-flight migration's
-     layout stateid as the reclaim key after a PS-process
-     restart.  The natural implementation retains it in PS-local
-     storage (e.g., a small sidecar file or DB table keyed by
-     `pa_file_fh`) when the MDS grants the L3 layout; how it is
-     retained is an implementation matter.  A PS that cannot
-     supply the prior stateid simply cannot reclaim its layouts
-     after a restart, and the migration is abandoned (the
-     autopilot re-drives it).
-   - `OPEN_RECLAIM(CLAIM_PREVIOUS, pa_file_fh)` per {{RFC8881}}
-     S9.11.1.  The MDS validates that the prior `clientid4`
-     had an OPEN on this file (which it did -- the OPEN was
-     created when the PS picked up the assignment from a
-     PROXY_PROGRESS reply).  MDS re-grants the OPEN.
-   - `LAYOUTGET(reclaim=true)` per {{RFC8881}} S18.43.3, supplying
-     the previously-retained layout stateid as the reclaim key.
-     The MDS validates that:
-     - The session's client has `nc_is_registered_ps` set
-     - The MDS recognizes an in-flight proxy operation for
-       this `(clientid, pa_file_fh, layout_stateid)` triple
-     - The reclaim falls within the server grace window
-     and re-grants the L3 composite layout with a fresh stateid
-     (the stateid the PS supplied is consumed; a new one is
-     issued for the resumed migration session, which the PS
-     MUST retain again per the rule above).
+3. **PROXY_PROGRESS** to pull the assignment queue.  If the
+   MDS has retained any in-flight migrations owned by this
+   PS, it delivers them in the reply -- each as a fresh
+   `proxy_assignment4` carrying a fresh `proxy_stateid` (the
+   prior `proxy_stateid` is from a prior boot and is
+   permanently stale; see {{sec-proxy-stateid}}).  For each
+   re-delivered assignment, the PS attempts to match it to
+   a retained sidecar entry by `(pa_file_fh,
+   target_dstore)`.  Matched assignments proceed to step 4;
+   unmatched assignments are handled as fresh assignments.
 
-   The reclaim itself is the standard {{RFC8881}} path --
-   `OPEN_RECLAIM(CLAIM_PREVIOUS)` and `LAYOUTGET(reclaim=true)`
-   -- with no side-channel grant signal.  The new
-   `CLAIM_PROXY` claim ({{sec-claim-proxy}}) is used only for
-   the initial proxy OPEN; reclaim after a crash uses ordinary
-   `CLAIM_PREVIOUS`, which reclaims the PS's open whatever
-   claim first established it.  The PS-specific contributions
-   are the `nc_is_registered_ps` session attribute and the
-   in-flight migration record on the MDS side.
+4. **Per-file layout reclaim**, for each matched assignment:
+   `OPEN_RECLAIM(CLAIM_PREVIOUS, pa_file_fh)` per
+   {{RFC8881}} S9.11.1, followed by
+   `LAYOUTGET(reclaim=true)` per {{RFC8881}} S18.43.3 with
+   the PS's retained layout stateid as the reclaim key.  On
+   success the MDS returns a fresh layout stateid for the
+   resumed migration and the PS continues from where it
+   left off.  On `NFS4ERR_NO_GRACE`, `NFS4ERR_RECLAIM_BAD`,
+   or any other reclaim failure, the PS MUST drop the
+   migration: it issues `PROXY_CANCEL` with the fresh
+   `proxy_stateid` delivered in step 3 to signal the MDS
+   that the migration cannot be resumed, discards the
+   retained sidecar entry, and halts any pending I/O for
+   the file.
 
-4. **Continue the migration** from wherever it left off.  Bytes
-   already on G are preserved (the DS holds them); the PS
-   reads the remaining source bytes from D, writes them to G.
-5. **Eventually issues PROXY_DONE** with success or failure;
-   the L1->L2 commit (or rollback) completes.
+5. **Sidecar entries the MDS did not re-deliver.**  For any
+   migration the PS retained in its sidecar but the MDS did
+   not include in step 3, the PS MUST drop that migration:
+   discard the sidecar entry and halt any pending I/O for
+   the file.  No signal to the MDS is needed -- the MDS
+   already has no record of this migration.
+
+6. **RECLAIM_COMPLETE** when all per-file reclaims and drops
+   are done.
+
+Dropped migrations rejoin the MDS's normal assignment path:
+a dstore still DRAINING when recovery settles will, in due
+course, attract a fresh `proxy_assignment4` -- to this PS or
+another -- under the `(pa_file_fh, target_dstore)`
+invariant of {{sec-multi-ps-fanout}}.
+
+### Retention Requirement
+
+A PS MUST be able to supply each in-flight migration's
+layout stateid as the reclaim key after a PS-process
+restart.  The natural implementation retains it in PS-local
+storage (e.g., a small sidecar file or DB table keyed by
+`pa_file_fh`) when the MDS grants the L3 layout; how it is
+retained is an implementation matter.  A PS that cannot
+supply the prior stateid cannot reclaim its layouts after a
+restart, and the affected migrations are dropped per step 5
+above.
 
 ## PS Identity Continuity
 
 A PS implementation SHOULD retain its `client_owner4` across
 PS-process restart so that post-restart EXCHANGE_ID recovers
-the same clientid and the in-flight migration records remain
-valid.
+the same `clientid` and the in-flight migration records
+remain valid.
 
-If the PS's `client_owner4` rotates (e.g., because PS process
-state was lost), the new EXCHANGE_ID gets a fresh `clientid4`.
-The PS's `prr_registration_id` (if matching the prior
-registration) identifies it as the "same operator-meaningful PS
-instance" via the squat-guard, but the in-flight migration
-records keyed on the OLD clientid cannot be claimed by the
-NEW clientid.  Those moves get re-assigned fresh by the
-autopilot via the next PROXY_PROGRESS poll.
+If the PS's `client_owner4` rotates (e.g., because PS
+process state was lost), the new EXCHANGE_ID gets a fresh
+`clientid4`.  The PS's `prr_registration_id` (if matching
+the prior registration) identifies it as the same
+operator-meaningful PS instance via the squat-guard, but
+the in-flight migration records keyed on the OLD `clientid`
+cannot be claimed by the NEW `clientid`.  Those migrations
+are dropped per the safety rules in {{sec-ps-recovery}};
+the autopilot re-issues fresh assignments at its
+discretion.
 
 ## Lost Migration Records {#sec-lost-migration-records}
 
-If the migration record cannot be matched (e.g., MDS
-state corruption), the per-file reclaim returns
-`NFS4ERR_NO_GRACE` or `NFS4ERR_RECLAIM_BAD`.  The PS reports
-the move as failed via `PROXY_DONE(layout_stid, FAIL)`; the
-autopilot retries on a fresh PROXY_PROGRESS poll with a new
-target dstore (or the same target if it is still the best
-choice).
+The drop rules in {{sec-ps-recovery}} cover the lost-state
+case end-to-end: a migration the MDS did not retain is
+dropped by the PS -- either because the MDS does not
+re-deliver it in PROXY_PROGRESS, or because the per-file
+reclaim returns `NFS4ERR_NO_GRACE` / `NFS4ERR_RECLAIM_BAD`
+-- and the autopilot is free to re-drive the work as a
+fresh assignment.  No proxy-specific signalling beyond
+standard NFSv4 reclaim errors and `PROXY_CANCEL` is needed.
 
 # Backward Compatibility
 
@@ -2467,7 +2473,7 @@ The design is substantially complete but still has open
 points that need Working Group input or internal agreement
 before the first submission.  They fall into three rough
 categories: wire-level details that need to be nailed down
-(renewal semantics and richer capability advertising),
+(richer capability advertising),
 architectural choices that affect
 the mechanism's shape (multiple concurrent proxies per file,
 transitive proxy, capability-scoped EXCHGID flag), and
@@ -2479,20 +2485,7 @@ question and the candidate resolutions; none of them block
 this document's core mechanism but each may reshape a detail
 of it.
 
-1.  **Registration renewal semantics.**  Is renewal a fresh
-    PROXY_REGISTRATION with the same prr_registration_id
-    (idempotent), or a separate PROXY_RENEW op
-    (lighter-weight)?  The idempotent-reregistration path
-    keeps the op
-    count smaller and keeps renewal and first-time
-    registration on a single code path, at the cost of
-    carrying the codec set on every renewal.  A dedicated
-    PROXY_RENEW op is cheaper on the wire but adds
-    an op number and a second code path.  The choice mostly
-    affects implementation complexity, not protocol
-    expressiveness.
-
-2.  **Multiple concurrent proxies per file.**  The design
+1.  **Multiple concurrent proxies per file.**  The design
     assumes one proxy per file per operation.  Should two
     proxies be allowed to pipeline a large file (proxy A
     drives the first 1 TB, proxy B drives the next)?  The
@@ -2509,7 +2502,7 @@ of it.
     parallelism later without invalidating the single-proxy
     path.
 
-3.  **Transitive proxy.**  If a file in PROXY_ACTIVE needs a
+2.  **Transitive proxy.**  If a file in PROXY_ACTIVE needs a
     second move (e.g., a DS maintenance window opens while a
     repair is already running), what happens?  Queueing the
     second move postpones the maintenance, which may not be
@@ -2523,7 +2516,7 @@ of it.
     probably depends on operator priorities and may need to be
     a configurable MDS policy rather than a protocol rule.
 
-4.  **Migration-state retention across restart.**  The recovery
+3.  **Migration-state retention across restart.**  The recovery
     model leaves retention of in-flight migration state across an
     MDS restart to the implementation; an MDS that retains nothing
     is conformant.  Should the document nonetheless add a SHOULD
@@ -2532,13 +2525,13 @@ of it.
     want it; it is a quality-of-implementation recommendation only,
     with no effect on interoperability.
 
-5.  **Registration as a capability-scoped authority.**  Should
+4.  **Registration as a capability-scoped authority.**  Should
     PROXY_REGISTRATION require a separate EXCHGID4 flag (e.g.,
     EXCHGID4_FLAG_USE_PROXY_DS) to distinguish proxy-capable
     DSes from generic DSes, or is the registration itself the
     capability declaration?
 
-6.  **Richer capability advertising.**  prr_codecs covers the
+5.  **Richer capability advertising.**  prr_codecs covers the
     transformation classes that matter for move / repair.
     Features that are implementation-internal (encryption,
     compression, alignment normalization) do not need to be
@@ -2548,7 +2541,7 @@ of it.
     capability descriptor.  Worth revisiting when those ops
     are defined.
 
-7.  **RPCSEC_GSSv3 for translating-proxy credential
+6.  **RPCSEC_GSSv3 for translating-proxy credential
     forwarding.**  Credential forwarding under AUTH_SYS is
     weak (uid spoofable, no integrity protection).  RPCSEC_GSSv3
     structured privilege assertion ({{RFC7861}} Section 2.5.2)
@@ -2560,7 +2553,7 @@ of it.
     GSSv3 adoption as a side effect of standardizing this
     mechanism.
 
-8.  **DEVICEID_REGISTRATION generalization.**
+7.  **DEVICEID_REGISTRATION generalization.**
     PROXY_REGISTRATION in this document is a proxy-specific
     capability-advertisement op: a DS opens a session to the
     MDS and declares that it is proxy-capable, along with
