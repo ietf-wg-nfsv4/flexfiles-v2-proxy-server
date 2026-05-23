@@ -215,52 +215,55 @@ wire and therefore needs no standardisation.  Nothing on
 this list is precluded by the current design; each is a
 reasonable future extension.
 
-**Journaling and partial moves.**  Move assignments in this
-revision are always whole-file.  The PS performs a CSM-style
-write to all mirrors (source D, destination G, and any other
-mirrors in the file's mirror set) while reading source bytes
-from any mirror in the source set; the two-layout state on
-the MDS keeps client traffic on L1 throughout, with an atomic
-swap to L2 at PROXY_DONE time
-({{sec-two-layout-state}}).  Delta-journaling mechanisms --
-capturing writes against an otherwise-offline source,
-replaying them on completion, or maintaining reference
-integrity across detached clones -- are a future extension,
-as is a partial-range move that would move a byte range while
-the rest of the file stays on the source.  The whole-file
-two-layout commit covers every motivating scenario the design
-currently has.
+Journaling and partial moves:
+:  Move assignments in this revision are always whole-file.
+   The PS performs a CSM-style write to all mirrors (source
+   D, destination G, and any other mirrors in the file's
+   mirror set) while reading source bytes from any mirror
+   in the source set; the two-layout state on the MDS keeps
+   client traffic on L1 throughout, with an atomic swap to
+   L2 at PROXY_DONE time ({{sec-two-layout-state}}).
+   Delta-journaling mechanisms -- capturing writes against
+   an otherwise-offline source, replaying them on
+   completion, or maintaining reference integrity across
+   detached clones -- are a future extension, as is a
+   partial-range move that would move a byte range while
+   the rest of the file stays on the source.  The
+   whole-file two-layout commit covers every motivating
+   scenario the design currently has.
 
-**Orchestration beyond a single proxy.**  Multi-proxy
-pipelines (staged moves for very large files) and
-automated load balancing or predictive selection across
-registered proxies are out of scope.  An MDS in this
-revision selects a single PS per operation; load
-distribution across many proxies, when it matters, is
-expected to be handled by the MDS's selection policy and
-does not surface as new wire protocol.
+Orchestration beyond a single proxy:
+:  Multi-proxy pipelines (staged moves for very large
+   files) and automated load balancing or predictive
+   selection across registered proxies are out of scope.
+   An MDS in this revision selects a single PS per
+   operation; load distribution across many proxies, when
+   it matters, is expected to be handled by the MDS's
+   selection policy and does not surface as new wire
+   protocol.
 
-**Server-side copy as an alternative path.**  Integration
-with server-side copy ({{RFC7862}} Section 4) as an
-alternative to PS-driven moves for single-file moves within
-one namespace is adjacent work.  The two mechanisms are
-complementary (server-side copy is a client-directed
-intra-server operation; the PS-driven move is an MDS-directed
-inter-server operation), and their intersection -- for
-example, using server-side copy under the hood of a PS move
-assignment -- is better specified in its own extension rather
-than bolted into this document.
+Server-side copy as an alternative path:
+:  Integration with server-side copy ({{RFC7862}} Section 4)
+   as an alternative to PS-driven moves for single-file
+   moves within one namespace is adjacent work.  The two
+   mechanisms are complementary (server-side copy is a
+   client-directed intra-server operation; the PS-driven
+   move is an MDS-directed inter-server operation), and
+   their intersection -- for example, using server-side
+   copy under the hood of a PS move assignment -- is better
+   specified in its own extension rather than bolted into
+   this document.
 
-**Proxy-internal features that do not surface on the
-wire.**  A proxy MAY implement content-integrity and
-error-correction layers, encryption and compression
-pass-through, log-structured write staging, and
-sector-alignment normalisation.  These are useful
-motivating scenarios for the move/repair vocabulary but do
-not require new protocol surface beyond what the
-PROXY_PROGRESS / PROXY_DONE / PROXY_CANCEL fore-channel set
-already provides, and so they are left to implementation
-rather than standardised here.
+Proxy-internal features that do not surface on the wire:
+:  A proxy MAY implement content-integrity and
+   error-correction layers, encryption and compression
+   pass-through, log-structured write staging, and
+   sector-alignment normalisation.  These are useful
+   motivating scenarios for the move/repair vocabulary but
+   do not require new protocol surface beyond what the
+   PROXY_PROGRESS / PROXY_DONE / PROXY_CANCEL fore-channel
+   set already provides, and so they are left to
+   implementation rather than standardised here.
 
 # Use Cases
 
@@ -2064,60 +2067,60 @@ and modification reach as a compromised DS, and in the
 translating-PS case a larger reach because of the elevated
 identity the PS typically runs with.
 
-The numbered items below name the specific threats the
-design either addresses or explicitly leaves out of scope.
-The rule on credential forwarding, because it is the most
+Each threat the design addresses or explicitly leaves out of
+scope is named below.  Credential forwarding, the most
 consequential and the most easily implemented incorrectly,
 is expanded in {{sec-credential-forwarding}}.
 
-1.  **PS authority.**  A PS in PROXY_ACTIVE sees all client
-    I/O for the proxied file.  A compromised PS can observe
-    or modify file data.  Deployments MUST treat PS-capable
-    hosts as at least as trusted as the DSes they proxy for.
-    PROXY_REGISTRATION SHOULD be gated by a deployment-level
-    allowlist; arbitrary hosts that present the op without
-    prior provisioning SHOULD be rejected.
+PS authority:
+:  A PS in PROXY_ACTIVE sees all client I/O for the proxied
+   file.  A compromised PS can observe or modify file data.
+   Deployments MUST treat PS-capable hosts as at least as
+   trusted as the DSes they proxy for.  PROXY_REGISTRATION
+   SHOULD be gated by a deployment-level allowlist;
+   arbitrary hosts that present the op without prior
+   provisioning SHOULD be rejected.
 
-2.  **Transport security across the operation.**  The PS's
-    connections to source and destination DSes are
-    independent of the client's connection to the PS.  A PS
-    MAY read from an AUTH_SYS source and write to a TLS
-    destination (or any other combination).  The PS is
-    responsible for enforcing the effective security policy
-    (e.g., do not downgrade encrypted data to a plaintext
-    DS).
+Transport security across the operation:
+:  The PS's connections to source and destination DSes are
+   independent of the client's connection to the PS.  A PS
+   MAY read from an AUTH_SYS source and write to a TLS
+   destination (or any other combination).  The PS is
+   responsible for enforcing the effective security policy
+   (e.g., do not downgrade encrypted data to a plaintext
+   DS).
 
-3.  **Principal binding during a proxy operation.**  For
-    PS-to-DS traffic (the PS reading source DSes and writing
-    destination DSes to carry out a MOVE or REPAIR
-    assignment), the PS presents a principal to those
-    DSes that they will accept; this is the PS's own service
-    identity unless constrained delegation or equivalent is
-    arranged.  Forwarding the client's identity to the peer
-    DSes for PS-driven data movement is NOT required and is
-    typically NOT practical (the client is not in the
-    conversation at that point).  See the Credential
-    Forwarding and Privilege Boundary section below for the
-    case of client-initiated file I/O through a translating
-    PS, where the credential-forwarding rule is different and
-    stricter.
+Principal binding during a proxy operation:
+:  For PS-to-DS traffic (the PS reading source DSes and
+   writing destination DSes to carry out a MOVE or REPAIR
+   assignment), the PS presents a principal to those DSes
+   that they will accept; this is the PS's own service
+   identity unless constrained delegation or equivalent is
+   arranged.  Forwarding the client's identity to the peer
+   DSes for PS-driven data movement is NOT required and is
+   typically NOT practical (the client is not in the
+   conversation at that point).  See
+   {{sec-credential-forwarding}} for the case of
+   client-initiated file I/O through a translating PS,
+   where the credential-forwarding rule is different and
+   stricter.
 
-4.  **PS impersonation.**  A malicious MDS could register a
-    hostile entity as a PS.  The existing MDS trust model
-    already grants the MDS this capability via
-    CB_LAYOUTRECALL and the ability to issue any layout it
-    chooses; PROXY_REGISTRATION does not weaken it.  Clients
-    that require stronger PS identity verification SHOULD
-    validate the PS's transport-security credentials against
-    a deployment allowlist.
+PS impersonation:
+:  A malicious MDS could register a hostile entity as a PS.
+   The existing MDS trust model already grants the MDS this
+   capability via CB_LAYOUTRECALL and the ability to issue
+   any layout it chooses; PROXY_REGISTRATION does not
+   weaken it.  Clients that require stronger PS identity
+   verification SHOULD validate the PS's transport-security
+   credentials against a deployment allowlist.
 
-5.  **Registration lease expiry.**  If a PS's lease expires
-    mid-operation, the MDS MUST abandon the operation:
-    discard the in-flight migration record, revert the
-    affected layouts to the pre-operation state, and arrange
-    cleanup of any half-populated destination DSes.  The MDS
-    MUST NOT continue to route client I/O to a PS whose
-    registration has lapsed.
+Registration lease expiry:
+:  If a PS's lease expires mid-operation, the MDS MUST
+   abandon the operation: discard the in-flight migration
+   record, revert the affected layouts to the pre-operation
+   state, and arrange cleanup of any half-populated
+   destination DSes.  The MDS MUST NOT continue to route
+   client I/O to a PS whose registration has lapsed.
 
 ## Credential Forwarding and the Privilege Boundary {#sec-credential-forwarding}
 
