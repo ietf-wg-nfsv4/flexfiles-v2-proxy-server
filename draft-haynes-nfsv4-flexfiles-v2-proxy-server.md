@@ -1046,22 +1046,25 @@ that receives PROXY_REGISTRATION on a session whose owning
 client did not present EXCHGID4_FLAG_USE_NON_PNFS MUST reject
 it with NFS4ERR_PERM.
 
-Before recording the registration, the MDS MUST validate the
-PS's transport-security identity against a deployment
-allowlist.  Acceptable identities are the PS's RPCSEC_GSS
-machine principal or the PS's RPC-over-TLS client-certificate
-identity, matching the MDS <-> PS transport-security rule in
-{{sec-credential-forwarding}}.  The MDS MUST reject a
-PROXY_REGISTRATION from any identity not on the allowlist with
-NFS4ERR_PERM.  AUTH_SYS, even over a transport that is
-otherwise authenticated, is never a valid authenticator for
-this operation; the MDS MUST reject it.
+Before recording the registration, the MDS MUST authorize
+the caller as a registered PS for this MDS.  How that
+authorization is established -- a deployment allowlist, a
+per-MDS provisioning step, integration with a directory
+service, or any other mechanism -- is implementation.  The
+MDS MUST reject an unauthorized PROXY_REGISTRATION with
+NFS4ERR_PERM.
+
+The authorization MUST be applied to a cryptographically
+authenticated identity, per the MDS <-> PS transport-
+security requirements in {{sec-credential-forwarding}}.
+AUTH_SYS is never sufficient for PROXY_REGISTRATION; the
+MDS MUST reject it.
 
 Because one PS proxies one MDS, a successful rogue registration
 displaces the legit PS and returns NFS4ERR_STALE to every
 client holding cached filehandles against the previous PS.  To
 guard against registration squatting, the MDS MUST refuse a
-new PROXY_REGISTRATION from an allowlisted identity while an
+new PROXY_REGISTRATION from an authorized identity while an
 existing registration from that same identity still holds a
 valid lease; the MDS returns NFS4ERR_DELAY and SHOULD log the
 conflict.  A renewal -- distinguished by the PS re-presenting
@@ -2103,7 +2106,7 @@ PS authority:
    file.  A compromised PS can observe or modify file data.
    Deployments MUST treat PS-capable hosts as at least as
    trusted as the DSes they proxy for.  PROXY_REGISTRATION
-   SHOULD be gated by a deployment-level allowlist;
+   SHOULD be gated by deployment-level authorization;
    arbitrary hosts that present the op without prior
    provisioning SHOULD be rejected.
 
@@ -2137,8 +2140,8 @@ PS impersonation:
    capability via CB_LAYOUTRECALL and the ability to issue
    any layout it chooses; PROXY_REGISTRATION does not
    weaken it.  Clients that require stronger PS identity
-   verification SHOULD validate the PS's transport-security
-   credentials against a deployment allowlist.
+   verification SHOULD apply deployment-level authorization
+   to the PS's transport-security credentials.
 
 Registration lease expiry:
 :  If a PS's lease expires mid-operation, the MDS MUST
@@ -2245,11 +2248,11 @@ Failure mode on missing credentials:
 
 Deployment-level requirements:
 
--  PROXY_REGISTRATION MUST be allowlisted.  An unknown host
-   presenting PROXY_REGISTRATION MUST be rejected.  This is
-   the only wire-level defense against a hostile entity
-   registering as a PS and then receiving client-forwarded
-   credentials.
+-  PROXY_REGISTRATION MUST be deployment-authorized.  An
+   unknown host presenting PROXY_REGISTRATION MUST be
+   rejected.  This is the only wire-level defense against a
+   hostile entity registering as a PS and then receiving
+   client-forwarded credentials.
 
 -  The MDS <-> PS session MUST use RPCSEC_GSS {{RFC7861}} or
    RPC-over-TLS {{RFC9289}} with mutual authentication.
@@ -2377,10 +2380,11 @@ document does not standardise such a mechanism;
 implementation-specific options include a control-plane
 probe-protocol
 extension, out-of-band admin distribution, or a future revision
-of this specification.  Any such mechanism MUST itself be authenticated
-against the PS allowlist (the rules are sensitive deployment
-policy) and MUST support a refresh path so PSes see rule changes
-within a bounded time.
+of this specification.  Any such mechanism MUST limit
+distribution to PSes that the deployment has authorized
+(the rules are sensitive deployment policy) and MUST
+support a refresh path so PSes see rule changes within a
+bounded time.
 
 # Implementations {#sec-implementations}
 {: removeInRFC="true"}
