@@ -557,21 +557,27 @@ migrated, the MDS keeps three logical layout records.  Only
 L3 backs a client-facing layout; L1 and L2 are MDS-internal
 bookkeeping for the duration of the migration.
 
-- **L1** -- the pre-migration mirror set, including D.  This
-  record is MDS-internal: it preserves what the file's layout
-  was before the migration and is handed to no client while
-  the migration is active.
-- **L2** -- the post-migration mirror set: L1 with D replaced
-  by the target G.  Also MDS-internal; it becomes the file's
-  layout after the PROXY_DONE swap.
-- **L3** -- the composite the PS works from.  It backs the
-  layout every client is served during the migration: that
-  client-facing layout names the PS as its data server, and
-  the PS does the real I/O against L3's two mirror entries:
-  - `M1` (read source): the L1 mirror set.  The PS reads
-    source bytes from any mirror in M1.
-  - `M2` (write target): the L1 mirror set PLUS G.  The PS
-    writes via CSM to every mirror in M2.
+L1:
+:  the pre-migration mirror set, including D.  This record
+   is MDS-internal: it preserves what the file's layout was
+   before the migration and is handed to no client while the
+   migration is active.
+
+L2:
+:  the post-migration mirror set: L1 with D replaced by the
+   target G.  Also MDS-internal; it becomes the file's
+   layout after the PROXY_DONE swap.
+
+L3:
+:  the composite the PS works from.  It backs the layout
+   every client is served during the migration: that
+   client-facing layout names the PS as its data server, and
+   the PS does the real I/O against L3's two mirror entries:
+
+   - `M1` (read source): the L1 mirror set.  The PS reads
+     source bytes from any mirror in M1.
+   - `M2` (write target): the L1 mirror set PLUS G.  The PS
+     writes via CSM to every mirror in M2.
 
 During the migration every client of F -- whichever front
 door it used -- is served a layout naming the PS; the PS is
