@@ -693,7 +693,7 @@ quiesced case they are recalled before the proxy server work starts.
 ~~~
   proxy server                                metadata server
   |                                 |
-  | ---- CREATE_SESSION ----------> | (proxy server opens session to metadata server)
+  | ---- CREATE_SESSION ----------> | (PS opens session to MDS)
   | <--- session est. ------------- |
   |                                 |
   | ---- PROXY_REGISTRATION ------> | (advertise codecs)
@@ -703,13 +703,13 @@ quiesced case they are recalled before the proxy server work starts.
   | <--- NFS4_OK, ppr_assignments   | (zero or more entries; one
   |       includes MOVE assignment  |  delivers the MOVE work)
   |                                 |
-  | ---- OPEN(pa_file_fh) --------> | (proxy server picks up the work)
+  | ---- OPEN(pa_file_fh) --------> | (PS picks up the work)
   | ---- LAYOUTGET (L3 composite) > |
   |                                 |
-  |  [proxy server drives move: reads source  |
-  |   data servers, encodes per destination |
+  |  [PS drives move: reads source  |
+  |   DSes, encodes per destination |
   |   codec, writes destination     |
-  |   data servers via L3 fan-out]          |
+  |   DSes via L3 fan-out]          |
   |                                 |
   | ---- PROXY_PROGRESS ----------> | (heartbeat; lease renewal,
   | <--- NFS4_OK, ppr_lease_rem.... |  no new assignment needed)
@@ -728,7 +728,7 @@ quiesced case they are recalled before the proxy server work starts.
   |                                 | <-- LAYOUTRETURN ------
   |                                 |     (from each client)
   |                                 |
-  |                                 | (metadata server retires source data servers;
+  |                                 | (MDS retires source DSes;
   |                                 |  next LAYOUTGET on this
   |                                 |  file returns L2)
   v                                 v
@@ -785,7 +785,7 @@ PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
   | <--- NFS4_OK, ppr_assignments   | (CANCEL_PRIOR for the
   |       includes CANCEL_PRIOR     |  same pa_file_fh/target)
   |                                 |
-  |  [proxy server drops the prior assignment |
+  |  [PS drops the prior assignment |
   |   from its in-flight queue;     |
   |   no PROXY_DONE / PROXY_CANCEL  |
   |   is issued for this work]      |
@@ -1805,41 +1805,41 @@ effect.
                          | only       |
                          +-----+------+
                                |
-                               | metadata server selects registered proxy server;
+                               | MDS selects registered PS;
                                | queues a proxy_assignment4
                                | for delivery in next
                                | PROXY_PROGRESS reply
                                v
                          +--------------+
                          |   ASSIGNED   |---> back to READY on
-                         | metadata server has the  |     cancellation
+                         | MDS has the  |     cancellation
                          | in-flight    |     (MDS-initiated, or
-                         | record; proxy server   |     lease expires before
-                         | has not yet  |     the proxy server picks up)
+                         | record; PS   |     lease expires before
+                         | has not yet  |     the PS picks up)
                          | OPEN'd file  |
                          +-----+--------+
                                |
-                               | proxy server picks up the assignment:
+                               | PS picks up the assignment:
                                | OPEN(pa_file_fh) + LAYOUTGET
                                | (L3 composite layout)
                                v
                          +--------------+
                          | PROXY_ACTIVE |---> back to READY on
                          | clients see  |     PROXY_DONE(FAIL),
-                         | single-data server    |     PROXY_CANCEL, or
-                         | layout       |     proxy server lease expiry;
-                         | naming proxy server;   |     layout reverts to L1
-                         | proxy server drives    |
+                         | single-DS    |     PROXY_CANCEL, or
+                         | layout       |     PS lease expiry;
+                         | naming PS;   |     layout reverts to L1
+                         | PS drives    |
                          | source->dest |
                          +-----+--------+
                                |
-                               | proxy server issues SEQUENCE
+                               | PS issues SEQUENCE
                                | PUTFH LAYOUTRETURN
                                | PROXY_DONE(stid, OK)
                                v
                          +------------+
                          | COMMITTING |
-                         | metadata server issues |
+                         | MDS issues |
                          | CB_LAYOUT- |
                          | RECALL for |
                          | old layout |
@@ -1853,7 +1853,7 @@ effect.
                          | new layout |
                          | live;      |
                          | source     |
-                         | data servers       |
+                         | DSes       |
                          | retired    |
                          +------------+
 ~~~
@@ -1863,12 +1863,12 @@ effect.
 
 | From | To | Trigger | Actions |
 |------|-----|---------|---------|
-| READY | ASSIGNED | metadata server decides to move or repair | metadata server queues a `proxy_assignment4` (kind=MOVE or REPAIR) for delivery in the next PROXY_PROGRESS reply to the selected proxy server; creates the in-flight migration record |
-| ASSIGNED | PROXY_ACTIVE | proxy server picks up the assignment | proxy server issues `OPEN(CLAIM_PROXY)` + LAYOUTGET against `pa_file_fh`; metadata server begins serving clients a layout naming the proxy server |
-| PROXY_ACTIVE | COMMITTING | proxy server issues PROXY_DONE with `pd_status=NFS4_OK` | metadata server begins CB_LAYOUTRECALL fan-out to clients still on the old layout |
-| COMMITTING | DONE | All clients have LAYOUTRETURNed | metadata server issues post-move layouts (L2); source data servers retired |
-| ASSIGNED | READY | MDS-initiated cancellation: metadata server includes a `PROXY_OP_CANCEL_PRIOR` assignment in the next PROXY_PROGRESS reply | metadata server drops the in-flight record; proxy server drops the assignment from its in-flight queue |
-| PROXY_ACTIVE | READY | proxy server failed and no replacement available; or PS-initiated cancellation via PROXY_CANCEL; or PROXY_DONE with a failing `pd_status` | metadata server reverts layouts to pre-move source set (L1) |
+| READY | ASSIGNED | MDS decides to move or repair | MDS queues a `proxy_assignment4` (kind=MOVE or REPAIR) for delivery in the next PROXY_PROGRESS reply to the selected PS; creates the in-flight migration record |
+| ASSIGNED | PROXY_ACTIVE | PS picks up the assignment | PS issues `OPEN(CLAIM_PROXY)` + LAYOUTGET against `pa_file_fh`; MDS begins serving clients a layout naming the PS |
+| PROXY_ACTIVE | COMMITTING | PS issues PROXY_DONE with `pd_status=NFS4_OK` | MDS begins CB_LAYOUTRECALL fan-out to clients still on the old layout |
+| COMMITTING | DONE | All clients have LAYOUTRETURNed | MDS issues post-move layouts (L2); source DSes retired |
+| ASSIGNED | READY | MDS-initiated cancellation: MDS includes a `PROXY_OP_CANCEL_PRIOR` assignment in the next PROXY_PROGRESS reply | MDS drops the in-flight record; PS drops the assignment from its in-flight queue |
+| PROXY_ACTIVE | READY | PS failed and no replacement available; or PS-initiated cancellation via PROXY_CANCEL; or PROXY_DONE with a failing `pd_status` | MDS reverts layouts to pre-move source set (L1) |
 
 # Proxy Server Failure and Recovery
 
