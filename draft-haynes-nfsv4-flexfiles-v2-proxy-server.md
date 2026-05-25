@@ -797,29 +797,29 @@ PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
 
 This document defines two new NFSv4.2 operations that a proxy server (PS) issues to the metadata server (MDS) on the
 fore-channel of the proxy server -> metadata server session defined in
-{{sec-design-session}}.  PROXY_REGISTRATION (93) is issued
-once at session setup and on renewal.  PROXY_PROGRESS (94) is
+{{sec-design-session}}.  PROXY_REGISTRATION (92) is issued
+once at session setup and on renewal.  PROXY_PROGRESS (93) is
 issued by the proxy server as a heartbeat-with-poll: the proxy server reports
 periodic and terminal progress for in-flight migrations and
 optionally requests new work; the metadata server replies inline with
-zero or more new work assignments.  PROXY_DONE (95) commits
+zero or more new work assignments.  PROXY_DONE (94) commits
 or rolls back an individual migration when the proxy server finishes
-it; PROXY_CANCEL (96) lets the proxy server abort early.  None of
+it; PROXY_CANCEL (95) lets the proxy server abort early.  None of
 these operations is sent by pNFS clients.
 
 ~~~ xdr
 /// /* New operations for the proxy server (proxy server -> metadata server) */
 ///
-/// OP_PROXY_REGISTRATION   = 93;
-/// OP_PROXY_PROGRESS       = 94;
-/// OP_PROXY_DONE           = 95;
-/// OP_PROXY_CANCEL         = 96;
+/// OP_PROXY_REGISTRATION   = 92;
+/// OP_PROXY_PROGRESS       = 93;
+/// OP_PROXY_DONE           = 94;
+/// OP_PROXY_CANCEL         = 95;
 ~~~
 {: #fig-proxy-server-opnums title="Proxy server operation numbers"}
 
-Opcodes 93 through 96 continue the MDS-to-DS control-plane
-range that {{I-D.haynes-nfsv4-flexfiles-v2}} opens at 88
-(TRUST_STATEID through BULK_REVOKE_STATEID at 88-90).
+Opcodes 92 through 95 continue the MDS-to-DS control-plane
+range that {{I-D.haynes-nfsv4-flexfiles-v2}} opens at 89
+(TRUST_STATEID through BULK_REVOKE_STATEID at 89-91).
 
 The following amendment blocks extend the nfs_argop4 and
 nfs_resop4 dispatch unions from {{RFC7863}} with the new ops.
@@ -946,7 +946,7 @@ this check, a proxy server that learned another proxy server's proxy_stateid
 could drive its PROXY_DONE / PROXY_CANCEL on a migration it
 does not own.
 
-## Operation 93: PROXY_REGISTRATION - Register as Proxy Server {#sec-PROXY_REGISTRATION}
+## Operation 92: PROXY_REGISTRATION - Register as Proxy Server {#sec-PROXY_REGISTRATION}
 
 ### ARGUMENTS
 
@@ -1093,7 +1093,7 @@ A future revision MAY define a dedicated PROXY_REVOKE
 operation if operational experience shows lease revocation
 through silence is insufficient.
 
-## Operation 94: PROXY_PROGRESS - Heartbeat and Receive Work Assignments {#sec-PROXY_PROGRESS}
+## Operation 93: PROXY_PROGRESS - Heartbeat and Receive Work Assignments {#sec-PROXY_PROGRESS}
 
 ### ARGUMENTS
 
@@ -1238,14 +1238,14 @@ PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
 The PS-to-MDS protocol uses two new fore-channel operations
 in addition to the extended PROXY_PROGRESS:
 
-`PROXY_DONE` (op 95):
+`PROXY_DONE` (op 94):
 :  proxy server reports terminal success or failure on a specific
    in-flight migration.  The metadata server uses the ppd_status to
    atomically commit (success: swap the file's active layout
    from L1 to L2) or roll back (failure: keep L1, drop
    L2/G).
 
-`PROXY_CANCEL` (op 96):
+`PROXY_CANCEL` (op 95):
 :  proxy server aborts a work item it was assigned but cannot complete
    (e.g., source data server becomes unreachable, proxy server resource
    exhaustion).  The metadata server treats this as PROXY_DONE with a
@@ -1260,7 +1260,7 @@ metadata server keys its in-flight migration record on the
 `(clientid, pa_file_fh, layout_stid)` triple.  No new stateid type
 is required.
 
-## Operation 95: PROXY_DONE - Commit or Roll Back a Proxy Operation {#sec-PROXY_DONE}
+## Operation 94: PROXY_DONE - Commit or Roll Back a Proxy Operation {#sec-PROXY_DONE}
 
 ### ARGUMENTS
 
@@ -1363,7 +1363,7 @@ Atomicity is critical: external client traffic must transition
 cleanly across this op; either the per-instance deltas commit
 fully or they do not commit at all.
 
-## Operation 96: PROXY_CANCEL - Abort a Proxy Operation {#sec-PROXY_CANCEL}
+## Operation 95: PROXY_CANCEL - Abort a Proxy Operation {#sec-PROXY_CANCEL}
 
 ### ARGUMENTS
 
