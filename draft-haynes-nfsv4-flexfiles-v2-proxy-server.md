@@ -38,15 +38,15 @@ informative:
 Parallel NFS (pNFS) with the Flexible Files Version 2 layout
 type supports client-side erasure coding and per-chunk repair
 between clients and data servers.  This document extends that
-architecture with a proxy server (PS) role: a registered peer
+architecture with a proxy server (proxy server) role: a registered peer
 of the metadata server that polls the metadata server for
 work assignments and carries them out -- moving a file from one
 layout to another, reconstructing a whole file from surviving
 shards, or translating between codecs for clients that cannot
 participate in the file's native encoding (including NFSv3
-clients).  All PS-MDS coordination is fore-channel: the
+clients).  All proxy-server-to-metadata-server coordination is fore-channel: the
 metadata server returns work assignments inline in the response
-to a PS-initiated PROXY_PROGRESS poll, and the proxy server reports
+to a proxy-server-initiated PROXY_PROGRESS poll, and the proxy server reports
 completion via a fore-channel PROXY_DONE.  No callback
 operations are required for the proxy server protocol.
 
@@ -89,14 +89,14 @@ including every NFSv3 client, and any legacy or minimal NFSv4
 client that does not implement the file's encoding type --
 still needs to read and write the file.
 
-This document specifies a proxy server (PS) role to
+This document specifies a proxy server (proxy server) role to
 address those three cases with a single mechanism: the proxy server
 opens a session to the metadata server and registers its
 capabilities via PROXY_REGISTRATION; the proxy server then polls the
 metadata server using PROXY_PROGRESS for work assignments (move, repair),
 which the metadata server returns inline in the poll response; the proxy server
 carries out each assignment and signals completion via
-PROXY_DONE (or abort via PROXY_CANCEL).  All of the PS-MDS
+PROXY_DONE (or abort via PROXY_CANCEL).  All of the proxy-server-to-metadata-server
 coordination is fore-channel; the proxy server does not require a
 back-channel callback program.  A client reaches a proxied
 file either by contacting the proxy server directly, as an ordinary
@@ -147,14 +147,14 @@ credential-forwarding rules a translating proxy must
 follow, and the recovery semantics for the three actor
 failures that matter during an operation (proxy server, metadata server, data server).
 
-The new role is the proxy server (PS), distinct from
+The new role is the proxy server (proxy server), distinct from
 the metadata server and data server roles defined in
 {{I-D.haynes-nfsv4-flexfiles-v2}}.  A proxy server registers with an
 metadata server and, on receipt of a directive from that metadata server, performs
 a move, a repair, or an ongoing codec translation on behalf
 of a client.  The proxy server is opaque to most clients and is
 visible to the metadata server through a dedicated NFSv4.1+ session that
-the proxy server itself opens.  All PS-MDS coordination is fore-channel:
+the proxy server itself opens.  All proxy-server-to-metadata-server coordination is fore-channel:
 the proxy server issues ops to the metadata server, and the metadata server returns work
 assignments inline in its responses.  No callback channel is
 required for the proxy server protocol.
@@ -170,7 +170,7 @@ zero or more new work assignments inline.  PROXY_DONE
 ({{sec-PROXY_DONE}}) commits or rolls back a migration when
 the proxy server finishes it; PROXY_CANCEL ({{sec-PROXY_CANCEL}}) lets
 the proxy server abort early.  All four ops are fore-channel
-PS-to-MDS.
+proxy-server-to-metadata-server.
 
 Around the operation set, the document specifies the layout
 conventions a client sees during a proxy operation and how
@@ -244,11 +244,11 @@ Orchestration beyond a single proxy:
 
 Server-side copy as an alternative path:
 :  Integration with server-side copy ({{RFC7862}} Section 4)
-   as an alternative to PS-driven moves for single-file
+   as an alternative to proxy-server-driven moves for single-file
    moves within one namespace is adjacent work.  The two
    mechanisms are complementary (server-side copy is a
-   client-directed intra-server operation; the PS-driven
-   move is an MDS-directed inter-server operation), and
+   client-directed intra-server operation; the proxy-server-driven
+   move is an metadata-server-directed inter-server operation), and
    their intersection -- for example, using server-side
    copy under the hood of a proxy server move assignment -- is better
    specified in its own extension rather than bolted into
@@ -386,7 +386,7 @@ clients are recalled only at the end.
 This same mechanism covers several related situations: an
 NFSv3-to-NFSv4.2 data server protocol upgrade where the data server FHs change
 as a side effect of migrating from {{RFC1813}} to
-{{RFC8881}} semantics; a DS-side format change that
+{{RFC8881}} semantics; a data-server-side format change that
 invalidates existing FHs (for example, a transition from a
 local POSIX store to an object store); and backend-opaque FH
 migration where the data server's FH structure is internally
@@ -401,7 +401,7 @@ a minimal client, a legacy client, or an NFSv3 client typically
 cannot participate in erasure-coded files at all.  Per the
 codec-negotiation rules in {{I-D.haynes-nfsv4-flexfiles-v2}},
 such a client either retries with a different supported_types
-hint, falls back to MDS-terminated I/O, or (this case) is
+hint, falls back to metadata-server-terminated I/O, or (this case) is
 routed through a proxy that translates on its behalf.
 
 Unlike the move / repair / evacuation / transition use cases
@@ -429,7 +429,7 @@ client that is an NFSv3 server that re-exports the metadata server's
 namespace; for a legacy NFSv4.2 client that understands only
 some codecs, it is an NFSv4.2 data-server surface presenting
 FFV2_ENCODING_MIRRORED (or an equivalent codec the client
-supports).  On its MDS-facing side it is an NFSv4.2
+supports).  On its metadata-server-facing side it is an NFSv4.2
 client to the metadata server plus whatever data server protocol the metadata server's real
 data servers speak.  The proxy translates each client-facing op into
 the corresponding metadata server or data server op, applies the codec
@@ -475,9 +475,9 @@ client's I/O requests against the unchanged source layout.
 ## Roles
 
 This document introduces a third role alongside the pNFS
-metadata server (MDS) and data server (DS):
+metadata server (metadata server) and data server (data server):
 
-Proxy server (PS):
+Proxy server (proxy server):
 :  A persistent, registered peer of the metadata server that carries out
    whole-file operations on the metadata server's behalf -- moving file
    content between layouts, reconstructing files whose source
@@ -491,17 +491,17 @@ Proxy server (PS):
 
 The existing roles are unchanged:
 
-Metadata server (MDS):
+Metadata server (metadata server):
 :  As defined in {{I-D.haynes-nfsv4-flexfiles-v2}}: the
    coordinator for each file, and the authority that issues
    layouts, manages stateids, and selects repair participants.
 
-Data server (DS):
+Data server (data server):
 :  As defined in {{I-D.haynes-nfsv4-flexfiles-v2}}: serves the
    CHUNK data path to pNFS clients.
 
 Only one of the three pairs carries new ops in this document.
-The metadata server <-> proxy server pair gains the new PS-to-MDS regular ops for
+The metadata server <-> proxy server pair gains the new proxy-server-to-metadata-server regular ops for
 registration, progress, and terminal reporting
 ({{sec-new-ops}}).  No new callback ops are introduced; the
 metadata server pulls work assignments to the proxy server in the PROXY_PROGRESS
@@ -554,18 +554,18 @@ multi-proxy server and partial-range extensions listed as out of scope
 
 For each file F whose mirror on a draining data server D is being
 migrated, the metadata server keeps three logical layout records.  Only
-L3 backs a client-facing layout; L1 and L2 are MDS-internal
+L3 backs a client-facing layout; L1 and L2 are metadata-server-internal
 bookkeeping for the duration of the migration.
 
 L1:
 :  the pre-migration mirror set, including D.  This record
-   is MDS-internal: it preserves what the file's layout was
+   is metadata-server-internal: it preserves what the file's layout was
    before the migration and is handed to no client while the
    migration is active.
 
 L2:
 :  the post-migration mirror set: L1 with D replaced by the
-   target G.  Also MDS-internal; it becomes the file's
+   target G.  Also metadata-server-internal; it becomes the file's
    layout after the PROXY_DONE swap.
 
 L3:
@@ -611,22 +611,22 @@ the client.
 ## Session Between Metadata Server and Proxy Server {#sec-design-session}
 
 The proxy server opens an NFSv4.1+ session to the metadata server as a normal
-client.  All PS-MDS coordination flows on the fore-channel of
+client.  All proxy-server-to-metadata-server coordination flows on the fore-channel of
 that session: PROXY_REGISTRATION establishes the relationship,
 PROXY_PROGRESS heartbeats and pulls work assignments,
 PROXY_DONE / PROXY_CANCEL report terminal state.  No callback
 program is required for the proxy server protocol -- the session's
 back-channel is unused by this draft (the proxy server may still
 establish one for unrelated NFSv4.1 callbacks if it wishes,
-but no PS-protocol op rides on it).
+but no proxy-server-protocol op rides on it).
 
 The session direction is intentionally opposite to the
 metadata server -> data server tight-coupling control session in
 {{I-D.haynes-nfsv4-flexfiles-v2}}: that session is opened by
-the metadata server to carry MDS-originated stateid management to a data server.
+the metadata server to carry metadata-server-originated stateid management to a data server.
 The metadata server <-> proxy server session is opened by the proxy server because registration
-is a PS-initiated act -- the proxy server is saying "here I am, with
-these capabilities."  Without a PS-to-MDS direction the
+is a proxy-server-initiated act -- the proxy server is saying "here I am, with
+these capabilities."  Without a proxy-server-to-metadata-server direction the
 capability-advertisement would have to be inferred from
 session-setup flags alone, which is inadequate for the range
 of capabilities a proxy server can usefully advertise (codec set
@@ -749,7 +749,7 @@ degraded.  Terminal outcomes:
    CB_LAYOUTRECALL is issued because there is no valid
    destination layout to issue.
 
-## Message Sequence: MDS-Initiated Cancellation
+## Message Sequence: metadata-server-initiated Cancellation
 
 The metadata server may decide to retract an assignment.  Two cases:
 
@@ -769,7 +769,7 @@ Assignment acknowledged and in flight:
    releases its OPEN.  The metadata server may also let the proxy server's
    registration lease expire as a coarser cancellation.
 
-The PS-initiated cancellation case uses the fore-channel
+The proxy-server-initiated cancellation case uses the fore-channel
 PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
 
 ~~~
@@ -791,11 +791,11 @@ PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
   |   is issued for this work]      |
   v                                 v
 ~~~
-{: #fig-seq-cancel title="Message sequence for MDS-initiated cancellation (assignment not yet acknowledged)"}
+{: #fig-seq-cancel title="Message sequence for metadata-server-initiated cancellation (assignment not yet acknowledged)"}
 
 # New NFSv4.2 Operations {#sec-new-ops}
 
-This document defines two new NFSv4.2 operations that a proxy server (PS) issues to the metadata server (MDS) on the
+This document defines two new NFSv4.2 operations that a proxy server (proxy server) issues to the metadata server (metadata server) on the
 fore-channel of the proxy server -> metadata server session defined in
 {{sec-design-session}}.  PROXY_REGISTRATION (92) is issued
 once at session setup and on renewal.  PROXY_PROGRESS (93) is
@@ -817,7 +817,7 @@ these operations is sent by pNFS clients.
 ~~~
 {: #fig-proxy-server-opnums title="Proxy server operation numbers"}
 
-Opcodes 92 through 95 continue the MDS-to-DS control-plane
+Opcodes 92 through 95 continue the metadata-server-to-data-server control-plane
 range that {{I-D.haynes-nfsv4-flexfiles-v2}} opens at 89
 (TRUST_STATEID through BULK_REVOKE_STATEID at 89-91).
 
@@ -978,7 +978,7 @@ does not own.
 
 ### DESCRIPTION
 
-A proxy server (PS) calls PROXY_REGISTRATION on the
+A proxy server (proxy server) calls PROXY_REGISTRATION on the
 fore-channel of its session to the metadata server
 ({{sec-design-session}}) to declare its capabilities.  The
 metadata server records the registration and MAY select that proxy server for
@@ -1152,7 +1152,7 @@ fore-channel of its session to the metadata server for two purposes:
 Per {{RFC8178}} S4.4.3, `ppa_flags` is a reserved-for-future-use
 flag word; the metadata server MUST reject any non-zero bit with
 `NFS4ERR_INVAL`.  The slot allows future revisions to add
-PS-side appetite signaling (e.g., "do not give me more
+proxy-server-side appetite signaling (e.g., "do not give me more
 assignments right now") without an XDR break.
 
 The metadata server returns work assignments inline in
@@ -1226,16 +1226,16 @@ lease and then 2*lease after K consecutive empty replies;
 reset on any non-empty reply.  The metadata server may override the
 cadence via `ppr_lease_remaining_sec`.
 
-The MDS-initiated cancellation case (the metadata server abandons an
+The metadata-server-initiated cancellation case (the metadata server abandons an
 in-flight assignment before the proxy server has driven it to terminal
 state) is signaled via the `PROXY_OP_CANCEL_PRIOR` assignment
 kind described above.  There is no separate cancel callback;
-the PS-initiated cancel is handled by the fore-channel
+the proxy-server-initiated cancel is handled by the fore-channel
 PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
 
 # New Fore-Channel Operations: PROXY_DONE and PROXY_CANCEL {#sec-new-fore-channel}
 
-The PS-to-MDS protocol uses two new fore-channel operations
+The proxy-server-to-metadata-server protocol uses two new fore-channel operations
 in addition to the extended PROXY_PROGRESS:
 
 `PROXY_DONE` (op 94):
@@ -1291,7 +1291,7 @@ corresponding `proxy_assignment4`
 metadata server to commit the migration (swap the file's active layout
 from the pre-migration shape L1 to the post-migration shape
 L2); any other value directs the metadata server to roll back (keep L1,
-discard L2 and the PS-only composite L3).
+discard L2 and the proxy-server-only composite L3).
 
 The proxy server compounds PROXY_DONE after the byte-shoveling phase
 completes (or fails):
@@ -1459,7 +1459,7 @@ invariant continues to hold across reassignment.
 A proxy server that reconnects with the same `client_owner4`, and so
 recovers the same `clientid` via EXCHANGE_ID, retains
 ownership of its in-flight migrations; no reassignment is
-needed.  The proxy server reclaims its layouts via the MDS-recovery
+needed.  The proxy server reclaims its layouts via the metadata-server-recovery
 path in {{sec-mds-recovery}}.
 
 A host that does not implement the proxy server role simply
@@ -1519,7 +1519,7 @@ the metadata server atomically (in one transaction):
 2. Drops L1 and L3 from the file's layout records
 3. Retires the in-flight migration record
 4. Issues CB_LAYOUTRECALL for the file's outstanding
-   client-facing (PS-naming) layouts
+   client-facing (proxy-server-naming) layouts
 5. Defers `REMOVE_MIRROR(D)` until those layouts are returned
 
 On its next LAYOUTGET each client receives the post-migration
@@ -1532,7 +1532,7 @@ When PROXY_DONE indicates failure (or PROXY_CANCEL is issued):
 2. L2 is dropped; the half-filled G instance is internally
    unlinked
 3. L3 is dropped and the migration record retired
-4. CB_LAYOUTRECALL is issued for the PS-naming layouts; on the
+4. CB_LAYOUTRECALL is issued for the proxy-server-naming layouts; on the
    next LAYOUTGET clients receive L1
 
 ## The swap window
@@ -1545,7 +1545,7 @@ issues PROXY_DONE the proxy server, as the sole writer, has quiesced its
 M2 fan-out, so the deferral window is short and contains no
 client-visible activity.
 
-A client holding a PS-naming layout when CB_LAYOUTRECALL
+A client holding a proxy-server-naming layout when CB_LAYOUTRECALL
 arrives returns it and re-LAYOUTGETs in the usual way.
 In-flight client I/O to the proxy server across that boundary is handled
 by the in-flight-I/O rules for a proxy server change (see "In-Flight I/O
@@ -1748,7 +1748,7 @@ layout stateid because the metadata server has registered the stateid via
 TRUST_STATEID on the proxy server, per the tight-coupling semantics in
 {{I-D.haynes-nfsv4-flexfiles-v2}}.
 
-The client handles PS-side errors (NFS4ERR_DELAY, connection
+The client handles proxy-server-side errors (NFS4ERR_DELAY, connection
 loss, NFS4ERR_BAD_STATEID) exactly as it would any other data server
 error: report LAYOUTERROR to the metadata server and expect either a new
 layout or a proxy server reassignment in return.
@@ -1779,7 +1779,7 @@ acknowledged it via OPEN+LAYOUTGET), PROXY_ACTIVE (the proxy server
 is driving a move or repair), COMMITTING (the proxy server has issued
 PROXY_DONE(OK) and the metadata server is recalling the old layout from
 external clients), and DONE (clients are on the post-move
-layout, source data servers retired).  The state is MDS-local:
+layout, source data servers retired).  The state is metadata-server-local:
 clients never observe these state names directly, but a
 client's behaviour is shaped by which layout the metadata server is
 currently handing out.  A given file spends most of its
@@ -1863,12 +1863,12 @@ effect.
 
 | From | To | Trigger | Actions |
 |------|-----|---------|---------|
-| READY | ASSIGNED | MDS decides to move or repair | MDS queues a `proxy_assignment4` (kind=MOVE or REPAIR) for delivery in the next PROXY_PROGRESS reply to the selected PS; creates the in-flight migration record |
-| ASSIGNED | PROXY_ACTIVE | PS picks up the assignment | PS issues `OPEN(CLAIM_PROXY)` + LAYOUTGET against `pa_file_fh`; MDS begins serving clients a layout naming the PS |
-| PROXY_ACTIVE | COMMITTING | PS issues PROXY_DONE with `pd_status=NFS4_OK` | MDS begins CB_LAYOUTRECALL fan-out to clients still on the old layout |
-| COMMITTING | DONE | All clients have LAYOUTRETURNed | MDS issues post-move layouts (L2); source DSes retired |
-| ASSIGNED | READY | MDS-initiated cancellation: MDS includes a `PROXY_OP_CANCEL_PRIOR` assignment in the next PROXY_PROGRESS reply | MDS drops the in-flight record; PS drops the assignment from its in-flight queue |
-| PROXY_ACTIVE | READY | PS failed and no replacement available; or PS-initiated cancellation via PROXY_CANCEL; or PROXY_DONE with a failing `pd_status` | MDS reverts layouts to pre-move source set (L1) |
+| READY | ASSIGNED | metadata server decides to move or repair | metadata server queues a `proxy_assignment4` (kind=MOVE or REPAIR) for delivery in the next PROXY_PROGRESS reply to the selected proxy server; creates the in-flight migration record |
+| ASSIGNED | PROXY_ACTIVE | proxy server picks up the assignment | proxy server issues `OPEN(CLAIM_PROXY)` + LAYOUTGET against `pa_file_fh`; metadata server begins serving clients a layout naming the proxy server |
+| PROXY_ACTIVE | COMMITTING | proxy server issues PROXY_DONE with `pd_status=NFS4_OK` | metadata server begins CB_LAYOUTRECALL fan-out to clients still on the old layout |
+| COMMITTING | DONE | All clients have LAYOUTRETURNed | metadata server issues post-move layouts (L2); source DSes retired |
+| ASSIGNED | READY | metadata-server-initiated cancellation: metadata server includes a `PROXY_OP_CANCEL_PRIOR` assignment in the next PROXY_PROGRESS reply | metadata server drops the in-flight record; proxy server drops the assignment from its in-flight queue |
+| PROXY_ACTIVE | READY | proxy server failed and no replacement available; or proxy-server-initiated cancellation via PROXY_CANCEL; or PROXY_DONE with a failing `pd_status` | metadata server reverts layouts to pre-move source set (L1) |
 
 # Proxy Server Failure and Recovery
 
@@ -1959,7 +1959,7 @@ following steps in order:
    the proxy server role on this session.  The metadata server does not assume
    that it retained any record of this proxy server being registered
    previously; PROXY_REGISTRATION is the proxy server's explicit
-   assertion of PS-ness for this session.  Until this step
+   assertion of proxy-server role for this session.  Until this step
    completes, the metadata server treats the client as an ordinary
    NFSv4 client and MUST NOT deliver proxy assignments to
    it.
@@ -2020,8 +2020,8 @@ re-drive from scratch -- both are conformant.
 ### Retention Requirement
 
 A proxy server MUST be able to supply each in-flight migration's
-layout stateid as the reclaim key after a PS-process
-restart.  The natural implementation retains it in PS-local
+layout stateid as the reclaim key after a proxy-server-process
+restart.  The natural implementation retains it in proxy-server-local
 storage (e.g., a small sidecar file or DB table keyed by
 `pa_file_fh`) when the metadata server grants the L3 layout; how it is
 retained is an implementation matter.  A proxy server that cannot
@@ -2032,7 +2032,7 @@ above.
 ## Proxy Server Identity Continuity
 
 A proxy server implementation SHOULD retain its `client_owner4` across
-PS-process restart so that post-restart EXCHANGE_ID recovers
+proxy-server-process restart so that post-restart EXCHANGE_ID recovers
 the same `clientid` and the in-flight migration records
 remain valid.
 
@@ -2082,7 +2082,7 @@ is expanded in {{sec-credential-forwarding}}.
 proxy server authority:
 :  A proxy server in PROXY_ACTIVE sees all client I/O for the proxied
    file.  A compromised proxy server can observe or modify file data.
-   Deployments MUST treat PS-capable hosts as at least as
+   Deployments MUST treat proxy-server-capable hosts as at least as
    trusted as the data servers they proxy for.  PROXY_REGISTRATION
    SHOULD be gated by deployment-level authorization;
    arbitrary hosts that present the op without prior
@@ -2098,13 +2098,13 @@ Transport security across the operation:
    data server).
 
 Principal binding during a proxy operation:
-:  For PS-to-DS traffic (the proxy server reading source data servers and
+:  For proxy-server-to-data-server traffic (the proxy server reading source data servers and
    writing destination data servers to carry out a MOVE or REPAIR
    assignment), the proxy server presents a principal to those data servers
    that they will accept; this is the proxy server's own service
    identity unless constrained delegation or equivalent is
    arranged.  Forwarding the client's identity to the peer
-   data servers for PS-driven data movement is NOT required and is
+   data servers for proxy-server-driven data movement is NOT required and is
    typically NOT practical (the client is not in the
    conversation at that point).  See
    {{sec-credential-forwarding}} for the case of
@@ -2152,7 +2152,7 @@ this document calls it out rather than hiding it.
 
 The normative requirements below apply whenever a proxy server is
 translating client-initiated file I/O (as distinct from
-PS-driven move / repair work, which runs under the proxy server's own
+proxy-server-driven move / repair work, which runs under the proxy server's own
 authority on directives from the metadata server).  They form a cohesive
 set: credential pass-through is the core requirement;
 no-squash-inversion closes the most common way pass-through
@@ -2206,7 +2206,7 @@ proxy server service identity is for the control plane only:
       PROXY_DONE, and PROXY_CANCEL all flow on the
       fore-channel; the session's back-channel is not used
       by this draft).
-   -  Peer-data server session setup for PS-driven data movement
+   -  Peer-data server session setup for proxy-server-driven data movement
       (reading source data servers, writing destination data servers under
       a MOVE assignment the metadata server has delivered via
       PROXY_PROGRESS).
@@ -2265,7 +2265,7 @@ What the protocol cannot defend against:
 Future work (noted as an Open Question below): RPCSEC_GSSv3
 structured privilege assertion per {{RFC7861}} Section 2.5.2
 is the natural strong-authentication mechanism for
-PS-forwarded credentials.  This revision does not require
+proxy-server-forwarded credentials.  This revision does not require
 GSSv3 because the broader NFSv4 deployment base does not yet
 support it; deployments that can use GSSv3 SHOULD prefer it
 over AUTH_SYS passthrough for the credential-forwarding
@@ -2334,7 +2334,7 @@ still subject to normal root_squash handling on the proxy server's
 source-address rule at the metadata server; the privilege applies only
 to the six ops enumerated above.
 
-## PS-Side Policy Enforcement (informative) {#sec-ps-side-policy-enforcement}
+## Proxy-server-side Policy Enforcement (informative) {#sec-ps-side-policy-enforcement}
 
 A proxy server implementation MAY perform per-client export-rule
 enforcement locally, rejecting operations the metadata server would also
@@ -2408,7 +2408,7 @@ The proxy server surface implemented in reffs covers, at the time of writing:
 Forward-channel ops not yet exercised end-to-end in the public
 implementation include `PROXY_DONE` / `PROXY_CANCEL`, which are
 issued only after a `PROXY_PROGRESS` reply that delivers a
-`proxy_assignment4`.  The MDS-driven assignment model (move,
+`proxy_assignment4`.  The metadata-server-driven assignment model (move,
 repair) is wire-implemented but the only assignment kind
 exercised by the published demo is the implicit no-assignment
 heartbeat that every PROXY_PROGRESS produces.
@@ -2416,7 +2416,7 @@ heartbeat that every PROXY_PROGRESS produces.
 ## Demonstration
 
 A reproducible demonstration of cross-proxy server proxying, exercising
-the layout-passthrough data path through PS-A and PS-B against a
+the layout-passthrough data path through proxy server A and proxy server B against a
 shared metadata server + 6 data servers, lives in the reffs source under
 `deploy/sanity/`.  The demo does not exercise migration,
 repair, or any `proxy_assignment4`; its purpose is to show that
@@ -2434,11 +2434,11 @@ The matrix:
 | /ffv2-mj       | FF v2     | Mojette systematic (4,2) | PASS   |
 
 For each row the client opens
-`<path>/codec_<label>.bin` through the PS-A proxy listener,
+`<path>/codec_<label>.bin` through the proxy server A proxy listener,
 performs a codec-encoded write of a 96 KiB random payload, then
-opens the same filehandle through the PS-B proxy listener and
+opens the same filehandle through the proxy server B proxy listener and
 reads it back.  The client's `cmp(1)` of the original payload
-and the PS-B-served payload returns no differences in all four
+and the proxy server B-served payload returns no differences in all four
 rows.
 
 The demo is published with the reffs source; the matrix above
@@ -2461,7 +2461,7 @@ section states how each is used (or explicitly excluded)
 when a proxy server is active on a file.  Two of the four
 (chunk_guard4, CHUNK_LOCK) describe what the proxy server does on the
 data server side of the mechanism; the other two (CB_CHUNK_REPAIR,
-TRUST_STATEID) describe how MDS-side bookkeeping composes
+TRUST_STATEID) describe how metadata-server-side bookkeeping composes
 with a live proxy operation.
 
 ## chunk_guard4
@@ -2477,7 +2477,7 @@ the destination is preserved.
 If a client holds a chunk lock on a file when a proxy
 operation activates, the lock follows the file: the proxy server takes
 ownership of the lock on the destination mirror set, and the
-MDS-escrow semantics (the Reserved cg_client_id Value
+metadata-server-escrow semantics (the Reserved cg_client_id Value
 subsection of {{I-D.haynes-nfsv4-flexfiles-v2}}) apply if the
 original holder becomes unreachable during the operation.
 
@@ -2641,7 +2641,7 @@ DEVICEID_REGISTRATION generalization:
    exist as a session in the main draft's tight-coupling
    control plane (which runs metadata server -> data server).  A resolution of
    this item also settles whether the proxy-server draft
-   introduces a new DS-initiated session or whether the
+   introduces a new data-server-initiated session or whether the
    generalized version does.
 
 # Deferred
@@ -2674,6 +2674,6 @@ Out of Scope before submission.
 
 David Flynn and Trond Myklebust shaped the proxy-server
 architecture, in particular the split between proxy
-registration and MDS-issued directives.
+registration and metadata-server-issued directives.
 
 Brian Pawlowski and Gorry Fairhurst guided this process.
