@@ -38,7 +38,7 @@ informative:
 Parallel NFS (pNFS) with the Flexible Files Version 2 layout
 type supports client-side erasure coding and per-chunk repair
 between clients and data servers.  This document extends that
-architecture with a proxy server (proxy server) role: a registered peer
+architecture with a proxy server role: a registered peer
 of the metadata server that polls the metadata server for
 work assignments and carries them out -- moving a file from one
 layout to another, reconstructing a whole file from surviving
@@ -89,7 +89,7 @@ including every NFSv3 client, and any legacy or minimal NFSv4
 client that does not implement the file's encoding type --
 still needs to read and write the file.
 
-This document specifies a proxy server (proxy server) role to
+This document specifies a proxy server role to
 address those three cases with a single mechanism: the proxy server
 opens a session to the metadata server and registers its
 capabilities via PROXY_REGISTRATION; the proxy server then polls the
@@ -147,9 +147,9 @@ credential-forwarding rules a translating proxy must
 follow, and the recovery semantics for the three actor
 failures that matter during an operation (proxy server, metadata server, data server).
 
-The new role is the proxy server (proxy server), distinct from
+The new role is the proxy server, distinct from
 the metadata server and data server roles defined in
-{{I-D.haynes-nfsv4-flexfiles-v2}}.  A proxy server registers with an
+{{I-D.haynes-nfsv4-flexfiles-v2}}.  A proxy server registers with a
 metadata server and, on receipt of a directive from that metadata server, performs
 a move, a repair, or an ongoing codec translation on behalf
 of a client.  The proxy server is opaque to most clients and is
@@ -475,9 +475,9 @@ client's I/O requests against the unchanged source layout.
 ## Roles
 
 This document introduces a third role alongside the pNFS
-metadata server (metadata server) and data server (data server):
+metadata server and data server:
 
-Proxy server (proxy server):
+Proxy server:
 :  A persistent, registered peer of the metadata server that carries out
    whole-file operations on the metadata server's behalf -- moving file
    content between layouts, reconstructing files whose source
@@ -491,12 +491,12 @@ Proxy server (proxy server):
 
 The existing roles are unchanged:
 
-Metadata server (metadata server):
+Metadata server:
 :  As defined in {{I-D.haynes-nfsv4-flexfiles-v2}}: the
    coordinator for each file, and the authority that issues
    layouts, manages stateids, and selects repair participants.
 
-Data server (data server):
+Data server:
 :  As defined in {{I-D.haynes-nfsv4-flexfiles-v2}}: serves the
    CHUNK data path to pNFS clients.
 
@@ -795,7 +795,8 @@ PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
 
 # New NFSv4.2 Operations {#sec-new-ops}
 
-This document defines two new NFSv4.2 operations that a proxy server (proxy server) issues to the metadata server (metadata server) on the
+This document defines two new NFSv4.2 operations that a proxy server
+issues to the metadata server on the
 fore-channel of the proxy server -> metadata server session defined in
 {{sec-design-session}}.  PROXY_REGISTRATION (92) is issued
 once at session setup and on renewal.  PROXY_PROGRESS (93) is
@@ -978,7 +979,7 @@ does not own.
 
 ### DESCRIPTION
 
-A proxy server (proxy server) calls PROXY_REGISTRATION on the
+A proxy server calls PROXY_REGISTRATION on the
 fore-channel of its session to the metadata server
 ({{sec-design-session}}) to declare its capabilities.  The
 metadata server records the registration and MAY select that proxy server for
@@ -1519,7 +1520,7 @@ the metadata server atomically (in one transaction):
 2. Drops L1 and L3 from the file's layout records
 3. Retires the in-flight migration record
 4. Issues CB_LAYOUTRECALL for the file's outstanding
-   client-facing (proxy-server-naming) layouts
+   client-facing layouts that name the proxy server
 5. Defers `REMOVE_MIRROR(D)` until those layouts are returned
 
 On its next LAYOUTGET each client receives the post-migration
@@ -1532,7 +1533,7 @@ When PROXY_DONE indicates failure (or PROXY_CANCEL is issued):
 2. L2 is dropped; the half-filled G instance is internally
    unlinked
 3. L3 is dropped and the migration record retired
-4. CB_LAYOUTRECALL is issued for the proxy-server-naming layouts; on the
+4. CB_LAYOUTRECALL is issued for the layouts that name the proxy server; on the
    next LAYOUTGET clients receive L1
 
 ## The swap window
@@ -1545,7 +1546,7 @@ issues PROXY_DONE the proxy server, as the sole writer, has quiesced its
 M2 fan-out, so the deferral window is short and contains no
 client-visible activity.
 
-A client holding a proxy-server-naming layout when CB_LAYOUTRECALL
+A client holding a layout that names the proxy server when CB_LAYOUTRECALL
 arrives returns it and re-LAYOUTGETs in the usual way.
 In-flight client I/O to the proxy server across that boundary is handled
 by the in-flight-I/O rules for a proxy server change (see "In-Flight I/O
@@ -1959,7 +1960,7 @@ following steps in order:
    the proxy server role on this session.  The metadata server does not assume
    that it retained any record of this proxy server being registered
    previously; PROXY_REGISTRATION is the proxy server's explicit
-   assertion of proxy-server role for this session.  Until this step
+   assertion that it has the proxy server role for this session.  Until this step
    completes, the metadata server treats the client as an ordinary
    NFSv4 client and MUST NOT deliver proxy assignments to
    it.
