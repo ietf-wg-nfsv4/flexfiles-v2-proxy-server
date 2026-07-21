@@ -966,14 +966,18 @@ session establishment to identify a proxy-server session
 ({{sec-PROXY_REGISTRATION}}):
 
 ~~~ xdr
-/// const EXCHGID4_FLAG_USE_PROXY_SERVER = 0x00100000;
+/// const EXCHGID4_FLAG_USE_PROXY_SERVER = 0x00200000;
 ~~~
 {: #fig-exchgid-flag-use-proxy-server title="Proxy-server EXCHGID4 flag"}
 
 The value is assigned outside the existing MASK_PNFS block
-(0x00070000 in {{RFC8881}} S18.35.3) and is expected to be
-allocated adjacent to `EXCHGID4_FLAG_USE_ERASURE_DS`
-({{I-D.haynes-nfsv4-flexfiles-v2}}) in the family's flag surface.
+(0x00070000 in {{RFC8881}} S18.35.3) and adjacent to
+`EXCHGID4_FLAG_USE_ERASURE_DS` (`0x00100000`,
+{{I-D.haynes-nfsv4-flexfiles-v2}}) in the family's flag surface,
+so that the erasure-DS bit and the proxy-server bit do not
+collide.  Values are subject to IANA assignment on publication;
+should IANA assign a different value, the numeric constant here
+and its uses throughout this document are updated to match.
 
 The following amendment blocks extend the nfs_argop4 and
 nfs_resop4 dispatch unions from {{RFC7863}} with the new ops.
