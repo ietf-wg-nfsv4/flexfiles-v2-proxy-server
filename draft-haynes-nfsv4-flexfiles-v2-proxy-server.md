@@ -118,7 +118,87 @@ primitives.
 
 {::boilerplate bcp14-tagged}
 
-## Relation to the Main Draft
+# Definitions
+
+The following terms are used with meanings defined in
+{{I-D.haynes-nfsv4-flexfiles-v2}}:
+
+- data server (DS), metadata server (MDS)
+- layout, mirror, mirror set, shard, stripe
+- chunk (the unit of client-driven encoded write/read), and the
+  chunk state machine (PENDING / FINALIZED / COMMITTED)
+- encoding, coding type, k (number of data shards), m (number of
+  parity shards)
+- `ffv2_layout4`, `ffv2_mirror4`, `ffv2_data_server4`,
+  `ffv2_coding_type4`, `FFV2_DS_FLAGS_PROXY` -- the layout XDR
+  types and flags
+- CHUNK_READ, CHUNK_WRITE, CHUNK_FINALIZE, CHUNK_COMMIT -- the
+  chunk-level data-path operations
+- TRUST_STATEID / REVOKE_STATEID / BULK_REVOKE_STATEID -- the
+  metadata-server-to-data-server control-plane fencing ops
+
+Local terms defined in this document:
+
+Proxy server (PS):
+:  A host registered with the metadata server via
+   PROXY_REGISTRATION ({{sec-PROXY_REGISTRATION}}) that
+   accepts and drives file-level migration, repair, and
+   encoding-translation assignments on behalf of the metadata
+   server.  The proxy server is a pNFS client of the metadata
+   server (it drives OPEN + LAYOUTGET like any other pNFS
+   client), and it appears as a data server in the layouts the
+   metadata server issues to end clients while the proxy
+   operation is active.
+
+Registered proxy server:
+:  A proxy server whose PROXY_REGISTRATION has been accepted
+   by the metadata server and whose lease has not expired.
+
+Proxy operation:
+:  A metadata-server-orchestrated activity carried out by a
+   proxy server on a single file: either a migration (MOVE), a
+   repair (REPAIR), or an encoding translation.  Referred to
+   collectively as an "assignment" once the metadata server
+   has committed it to a specific proxy server and minted a
+   `proxy_stateid` for it ({{sec-proxy-stateid}}).
+
+Migration:
+:  A proxy operation of kind PROXY_OP_MOVE that shifts a file
+   from one mirror set (L1, the source) to another (L2, the
+   destination).
+
+Assignment:
+:  A `proxy_assignment4` the metadata server has minted and is
+   delivering (or has delivered) to a specific proxy server;
+   named by its `proxy_stateid`.
+
+L1, L2, L3:
+:  The three mirror-set roles the metadata server tracks while
+   a proxy operation is in flight on a file.  L1 is the source
+   layout (the file's layout before the proxy operation
+   started), L2 is the destination layout (the file's layout
+   after PROXY_DONE succeeds), and L3 is the composite layout
+   naming the proxy server as a data server, issued to end
+   clients while the proxy operation is in flight and to the
+   proxy server via OPEN(CLAIM_PROXY).  Defined precisely in
+   {{sec-design-model}}.
+
+Sidecar:
+:  Per-migration reclaim state a metadata server MAY retain
+   across its own reboot to permit a reconnecting proxy server
+   to resume in-flight work.  Sidecar contents are
+   implementation-defined; the wire mechanism does not require
+   the metadata server to retain any sidecar.
+
+Autopilot:
+:  The metadata server's internal assignment-selection policy
+   engine.  The wire protocol does not constrain how the
+   autopilot chooses proxies or when it issues assignments;
+   the autopilot is named in this document only to
+   disambiguate metadata-server-initiated actions from
+   proxy-server-initiated ones.
+
+## Relation to Sibling FFv2 Documents {#sec-relation-to-parent}
 
 {{I-D.haynes-nfsv4-flexfiles-v2}} defines CB_CHUNK_REPAIR and
 the per-chunk repair model.  This document is the companion
@@ -506,7 +586,7 @@ are not used for pure translation (the file is not moving or
 being repaired); the proxy server simply serves the encoding-ignorant
 client's I/O requests against the unchanged source layout.
 
-# Design Model
+# Design Model {#sec-design-model}
 
 ## Roles
 
