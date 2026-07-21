@@ -42,7 +42,7 @@ architecture with a proxy server role: a registered peer
 of the metadata server that polls the metadata server for
 work assignments and carries them out -- moving a file from one
 layout to another, reconstructing a whole file from surviving
-shards, or translating between codecs for clients that cannot
+shards, or translating between encodings for clients that cannot
 participate in the file's native encoding (including NFSv3
 clients).  All proxy-server-to-metadata-server coordination is fore-channel: the
 metadata server returns work assignments inline in the response
@@ -83,8 +83,8 @@ another for policy reasons (migrating to a new coding type, or
 re-mirroring), for maintenance reasons (evacuating a data
 server ahead of decommission), or for environmental reasons
 (moving between transport-security profiles or between
-filehandle backends).  The third is codec translation: a
-client that cannot participate in the file's native codec --
+filehandle backends).  The third is encoding translation: a
+client that cannot participate in the file's native encoding --
 including every NFSv3 client, and any legacy or minimal NFSv4
 client that does not implement the file's encoding type --
 still needs to read and write the file.
@@ -102,7 +102,7 @@ back-channel callback program.  A client reaches a proxied
 file either by contacting the proxy server directly, as an ordinary
 NFS server, or through a pNFS layout whose data server is
 the proxy server.  While a migration is in progress every client
-routes its I/O through the proxy server; for codec translation, only
+routes its I/O through the proxy server; for encoding translation, only
 a client that cannot encode the file does.
 
 Flex Files v1 provides no standardized mechanism for migrating
@@ -151,7 +151,7 @@ The new role is the proxy server, distinct from
 the metadata server and data server roles defined in
 {{I-D.haynes-nfsv4-flexfiles-v2}}.  A proxy server registers with a
 metadata server and, on receipt of a directive from that metadata server, performs
-a move, a repair, or an ongoing codec translation on behalf
+a move, a repair, or an ongoing encoding translation on behalf
 of a client.  The proxy server is opaque to most clients and is
 visible to the metadata server through a dedicated NFSv4.1+ session that
 the proxy server itself opens.  All proxy-server-to-metadata-server coordination is fore-channel:
@@ -161,7 +161,7 @@ required for the proxy server protocol.
 
 The fore-channel surface is deliberately small.
 PROXY_REGISTRATION ({{sec-PROXY_REGISTRATION}}) lets the proxy server
-declare the codec set it supports and its lease.
+declare the encoding set it supports and its lease.
 PROXY_PROGRESS
 ({{sec-PROXY_PROGRESS}}) is the proxy server's poll-and-report op:
 the proxy server sends it as a heartbeat (with optional progress
@@ -176,16 +176,16 @@ Around the operation set, the document specifies the layout
 conventions a client sees during a proxy operation and how
 a client discovers the proxy server in the first place.
 
-Codec translation for codec-ignorant clients, including
+Encoding translation for encoding-ignorant clients, including
 NFSv3 clients, is in scope, and is the one case that
 stretches the move/repair vocabulary.  The same proxy
 machinery that handles move and repair also provides the
 persistent per-client translation that lets a client
-incapable of participating in a file's native codec still
+incapable of participating in a file's native encoding still
 read and write the file.  Unlike move and repair, which are
-transient transitions on the file, codec translation is an
+transient transitions on the file, encoding translation is an
 ongoing routing arrangement that persists as long as the
-codec-ignorant client is active.
+encoding-ignorant client is active.
 
 Credential-forwarding rules for a proxy that translates on
 behalf of a client are defined in the Security
@@ -275,7 +275,7 @@ or migrated between filehandle backends), and the transition
 is what the proxy server drives to completion.  The seventh is
 qualitatively different: the file is not changing, but
 specific clients -- those that cannot participate in the
-file's native codec -- are routed through a proxy server persistently,
+file's native encoding -- are routed through a proxy server persistently,
 for as long as they are active.
 
 The distinction matters for how the metadata server schedules work.
@@ -283,7 +283,7 @@ Transient transitions have a terminal state; the metadata server expects
 each one to complete (via terminal PROXY_PROGRESS) and then
 to retire the associated layout.  The persistent routing case
 has no terminal state for the file as a whole; the proxy server stays in
-the layouts of codec-ignorant clients as long as those
+the layouts of encoding-ignorant clients as long as those
 clients are open.
 
 In every case, a registered proxy server becomes the source of truth
@@ -298,7 +298,7 @@ An administrator rsyncs a file from an external source into the
 cluster as a single-copy file.  Server policy requires the file
 to be mirrored or erasure coded.  The metadata server queues a MOVE
 assignment for the file; the next PROXY_PROGRESS poll from a
-registered proxy whose codec set covers the destination layout
+registered proxy whose encoding set covers the destination layout
 returns the assignment in its response.  The proxy populates
 the destination from the source, while any client that opens
 the file during the move sees a layout that routes I/O through
@@ -392,47 +392,47 @@ local POSIX store to an object store); and backend-opaque FH
 migration where the data server's FH structure is internally
 versioned and old clients hold stale versions.
 
-## Codec Translation for Codec-Ignorant Clients {#sec-codec-translation}
+## Encoding Translation for Encoding-Ignorant Clients {#sec-encoding-translation}
 
 The coding-type registry defined in the IANA Considerations of
 {{I-D.haynes-nfsv4-flexfiles-v2}} is expected to grow.  Not
-every client is required to implement every registered codec;
+every client is required to implement every registered encoding;
 a minimal client, a legacy client, or an NFSv3 client typically
 cannot participate in erasure-coded files at all.  Per the
-codec-negotiation rules in {{I-D.haynes-nfsv4-flexfiles-v2}},
+encoding-negotiation rules in {{I-D.haynes-nfsv4-flexfiles-v2}},
 such a client either retries with a different supported_types
 hint, falls back to metadata-server-terminated I/O, or (this case) is
 routed through a proxy that translates on its behalf.
 
 Unlike the move / repair / evacuation / transition use cases
-above, codec translation is persistent per client.  The
+above, encoding translation is persistent per client.  The
 file itself is not changing state.  What changes is the layout
-the metadata server hands to a codec-ignorant client: that client gets a
+the metadata server hands to an encoding-ignorant client: that client gets a
 single-data server layout naming a translating proxy server, with a coding_type
 the client does support (typically FFV2_ENCODING_MIRRORED, or
 for NFSv3 clients just a flat NFSv3 data surface).  The proxy
 encodes and decodes on the fly against the real data servers; the
 client sees a flat file.
 
-The same file may be accessed directly by codec-aware clients
+The same file may be accessed directly by encoding-aware clients
 (with a normal layout naming the real data servers) and through the
-proxy by codec-ignorant clients (with a proxy layout)
+proxy by encoding-ignorant clients (with a proxy layout)
 simultaneously.  The metadata server issues a different layout per
-request; only the codec-ignorant case routes through the proxy server.
+request; only the encoding-ignorant case routes through the proxy server.
 
 ### Mechanism
 
 A translating proxy runs two sides that meet internally.  On
 its client-facing side it speaks the protocol the
-codec-ignorant client can speak: for an NFSv3 {{RFC1813}}
+encoding-ignorant client can speak: for an NFSv3 {{RFC1813}}
 client that is an NFSv3 server that re-exports the metadata server's
 namespace; for a legacy NFSv4.2 client that understands only
-some codecs, it is an NFSv4.2 data-server surface presenting
-FFV2_ENCODING_MIRRORED (or an equivalent codec the client
+some encodings, it is an NFSv4.2 data-server surface presenting
+FFV2_ENCODING_MIRRORED (or an equivalent encoding the client
 supports).  On its metadata-server-facing side it is an NFSv4.2
 client to the metadata server plus whatever data server protocol the metadata server's real
 data servers speak.  The proxy translates each client-facing op into
-the corresponding metadata server or data server op, applies the codec
+the corresponding metadata server or data server op, applies the encoding
 transformation between the two, and returns results.
 
 For an NFSv3 client, a read flows:
@@ -450,7 +450,7 @@ For an NFSv3 client, a read flows:
 A write flows:
 
 -  Client: NFSv3 `WRITE` with stable_how and a byte range.
--  Proxy: encodes the bytes per the file's codec, issues
+-  Proxy: encodes the bytes per the file's encoding, issues
    `CHUNK_WRITE` / `CHUNK_FINALIZE` / `CHUNK_COMMIT` against
    the real data servers.
 -  Proxy: returns NFSv3 WRITE ok with the stable_how it was
@@ -460,14 +460,14 @@ A write flows:
 ### Why the same PROXY_REGISTRATION machinery
 
 The registered-proxy server mechanism gives the metadata server the information it
-needs for translation-proxy selection: `prr_codecs` enumerates
-the codecs the proxy server can translate between, the metadata server <-> proxy server
+needs for translation-proxy selection: `prr_encodings` enumerates
+the encodings the proxy server can translate between, the metadata server <-> proxy server
 session carries the fore-channel control-plane traffic, and
 the lease bounds the relationship.  No new op is required for
 the translation case -- the existing `PROXY_REGISTRATION`
 covers it.  `PROXY_OP_MOVE` and `PROXY_OP_REPAIR` assignments
 are not used for pure translation (the file is not moving or
-being repaired); the proxy server simply serves the codec-ignorant
+being repaired); the proxy server simply serves the encoding-ignorant
 client's I/O requests against the unchanged source layout.
 
 # Design Model
@@ -481,7 +481,7 @@ Proxy server:
 :  A persistent, registered peer of the metadata server that carries out
    whole-file operations on the metadata server's behalf -- moving file
    content between layouts, reconstructing files whose source
-   layout has been damaged, and translating codecs on behalf of
+   layout has been damaged, and translating encodings on behalf of
    clients that cannot participate in the file's native
    encoding.  A proxy server is a distinct role from a data server; a given server
    MAY implement both, and typically does, but the protocol
@@ -629,7 +629,7 @@ is a proxy-server-initiated act -- the proxy server is saying "here I am, with
 these capabilities."  Without a proxy-server-to-metadata-server direction the
 capability-advertisement would have to be inferred from
 session-setup flags alone, which is inadequate for the range
-of capabilities a proxy server can usefully advertise (codec set
+of capabilities a proxy server can usefully advertise (encoding set
 and -- as the DEVICEID_REGISTRATION open question
 anticipates -- fault-zone coordinates and other deployment
 attributes).
@@ -654,7 +654,7 @@ connection per metadata server it is registered with.
 ## Flow Summary
 
 The proxy server opens a session to the metadata server and issues
-PROXY_REGISTRATION, declaring its supported codecs; the metadata server
+PROXY_REGISTRATION, declaring its supported encodings; the metadata server
 records the registration and returns a registration id with
 a granted lease.  The proxy server then polls
 the metadata server via PROXY_PROGRESS at lease/2 cadence (or as the
@@ -696,7 +696,7 @@ quiesced case they are recalled before the proxy server work starts.
   | ---- CREATE_SESSION ----------> | (PS opens session to MDS)
   | <--- session est. ------------- |
   |                                 |
-  | ---- PROXY_REGISTRATION ------> | (advertise codecs)
+  | ---- PROXY_REGISTRATION ------> | (advertise encodings)
   | <--- reg_id, granted_lease ---- |
   |                                 |
   | ---- PROXY_PROGRESS ----------> | (heartbeat poll)
@@ -708,7 +708,7 @@ quiesced case they are recalled before the proxy server work starts.
   |                                 |
   |  [PS drives move: reads source  |
   |   DSes, encodes per destination |
-  |   codec, writes destination     |
+  |   encoding, writes destination     |
   |   DSes via L3 fan-out]          |
   |                                 |
   | ---- PROXY_PROGRESS ----------> | (heartbeat; lease renewal,
@@ -953,7 +953,7 @@ does not own.
 
 ~~~ xdr
 /// struct PROXY_REGISTRATION4args {
-///     ffv2_coding_type4  prr_codecs<>;
+///     ffv2_coding_type4  prr_encodings<>;
 ///     uint32_t           prr_lease;
 ///     uint32_t           prr_flags;
 /// };
@@ -986,12 +986,12 @@ metadata server records the registration and MAY select that proxy server for
 subsequent MOVE / REPAIR work assignments delivered inline in
 the response to PROXY_PROGRESS.
 
-The prr_codecs field lists the ffv2_coding_type4 values the
+The prr_encodings field lists the ffv2_coding_type4 values the
 proxy server supports.  The proxy server MUST be able to encode, decode, and
 transcode between any pair of values in this list.  Because
 the transformation class of a `PROXY_OP_MOVE` assignment is
 inherent in the (source, destination) layout pair, this
-codec-set membership is all the capability information the
+encoding-set membership is all the capability information the
 metadata server needs to match.  An empty list results in NFS4ERR_INVAL
 in this revision.
 
@@ -1241,7 +1241,7 @@ in addition to the extended PROXY_PROGRESS:
 
 `PROXY_DONE` (op 94):
 :  proxy server reports terminal success or failure on a specific
-   in-flight migration.  The metadata server uses the ppd_status to
+   in-flight migration.  The metadata server uses the pd_status to
    atomically commit (success: swap the file's active layout
    from L1 to L2) or roll back (failure: keep L1, drop
    L2/G).
@@ -1602,7 +1602,7 @@ The operand carries two values:
 `ocp_ps_fh`:
 :  the filehandle under which the proxy server will serve the file to
    clients: the data-server filehandle that appears in the
-   layout the metadata server hands a codec-incapable client, and the
+   layout the metadata server hands an encoding-incapable client, and the
    filehandle a non-pNFS client obtains by LOOKUP against
    the proxy server.  Only the proxy server can mint this filehandle; it is
    opaque to the metadata server, which records it and copies it
@@ -1684,7 +1684,7 @@ revision.
 The L1/L2/L3 framing above describes one valid implementation
 approach -- whole-layout swap -- that captures the simplest
 case (single mirror replacement under a Client Side Mirroring
-codec).  A metadata server implementation that supports more general
+encoding).  A metadata server implementation that supports more general
 migrations (e.g., a single shard add to an erasure-coded
 file, or a partial mirror-set rotation under FFv2 RS) MAY
 record migration state as per-instance deltas on the file's
@@ -2132,7 +2132,7 @@ Registration lease expiry:
 
 ## Credential Forwarding and the Privilege Boundary {#sec-credential-forwarding}
 
-A translating proxy server (see {{sec-codec-translation}}) has
+A translating proxy server (see {{sec-encoding-translation}}) has
 structurally elevated privilege by design.  To perform its
 management tasks -- moves, repairs, evacuations,
 cross-tenant re-exports -- the deployment grants the proxy server's
@@ -2140,7 +2140,7 @@ service identity broad access: typically not-root-squashed,
 often read/write to every file in the namespace, and session
 authority to every data server.  That privilege is intentional.
 
-A codec-ignorant client that reaches the proxy server, however, arrives
+An encoding-ignorant client that reaches the proxy server, however, arrives
 with its own RPC credentials that the proxy server does not itself need
 in order to function.  An NFSv3 client's uid/gid, an
 AUTH_SYS-squashed identity, an RPCSEC_GSS principal -- none of
@@ -2387,7 +2387,7 @@ implementations may exist.
 
 reffs is an open-source NFSv4.2 server, metadata server, and erasure-coding
 client.  The reffs source ships a metadata server, a Proxy Server, and a
-multi-codec client harness used as the working implementation
+multi-encoding client harness used as the working implementation
 for this draft.  reffs is licensed AGPL-3.0-or-later.
 
 The proxy server surface implemented in reffs covers, at the time of writing:
@@ -2421,12 +2421,12 @@ the layout-passthrough data path through proxy server A and proxy server B again
 shared metadata server + 6 data servers, lives in the reffs source under
 `deploy/sanity/`.  The demo does not exercise migration,
 repair, or any `proxy_assignment4`; its purpose is to show that
-a client's codec-encoded write through one proxy server is recoverable
+a client's encoding-encoded write through one proxy server is recoverable
 byte-for-byte through a peer proxy server that shares the same metadata server.
 
 The matrix:
 
-| Path           | Layout    | Codec                    | Result |
+| Path           | Layout    | Encoding                    | Result |
 |----------------|-----------|--------------------------|--------|
 | /ffv1-csm      | FF v1     | plain mirror             | PASS   |
 | /ffv1-stripes  | FF v1     | stripe k=6, m=0          | PASS   |
@@ -2436,7 +2436,7 @@ The matrix:
 
 For each row the client opens
 `<path>/codec_<label>.bin` through the proxy server A proxy listener,
-performs a codec-encoded write of a 96 KiB random payload, then
+performs an encoding-encoded write of a 96 KiB random payload, then
 opens the same filehandle through the proxy server B proxy listener and
 reads it back.  The client's `cmp(1)` of the original payload
 and the proxy server B-served payload returns no differences in all four
@@ -2571,7 +2571,7 @@ Registration as a capability-scoped authority:
    registration itself the capability declaration?
 
 Richer capability advertising:
-:  prr_codecs covers the transformation classes that matter
+:  prr_encodings covers the transformation classes that matter
    for move / repair.  Features that are
    implementation-internal (encryption, compression,
    alignment normalization) do not need to be advertised
@@ -2597,7 +2597,7 @@ DEVICEID_REGISTRATION generalization:
 :  PROXY_REGISTRATION in this document is a proxy-specific
    capability-advertisement op: a data server opens a session to the
    metadata server and declares that it is proxy-capable, along with
-   codec-set membership and a lease.
+   encoding-set membership and a lease.
 
    The same mechanism has broader applicability as a
    generic data server -> metadata server capability advertisement -- a
