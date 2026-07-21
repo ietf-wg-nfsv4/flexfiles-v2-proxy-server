@@ -22,7 +22,6 @@ author:
 
 normative:
   RFC7861:
-  RFC7862:
   RFC7863:
   RFC8178:
   RFC8881:
@@ -31,6 +30,7 @@ normative:
 
 informative:
   RFC1813:
+  RFC7862:
   RFC8435:
 
 --- abstract
@@ -105,13 +105,13 @@ the proxy server.  While a migration is in progress every client
 routes its I/O through the proxy server; for encoding translation, only
 a client that cannot encode the file does.
 
-Flex Files v1 provides no standardized mechanism for migrating
-a file's layout while the file remains in use.  Without such
+Flex Files v1 ({{RFC8435}}) provides no standardized mechanism
+for migrating a file's layout while the file remains in use.  Without such
 primitives, migration is left to implementation-specific
 machinery and cannot be performed safely across
 implementations.  This design codifies that mechanism, closing
 what is today the single biggest interop gap between pNFS and
-parallel-filesystem competitors that already expose migration
+other parallel filesystems that already expose migration
 primitives.
 
 # Requirements Language
@@ -328,7 +328,7 @@ Server-side copy as an alternative path:
    moves within one namespace is adjacent work.  The two
    mechanisms are complementary (server-side copy is a
    client-directed intra-server operation; the proxy-server-driven
-   move is an metadata-server-directed inter-server operation), and
+   move is a metadata-server-directed inter-server operation), and
    their intersection -- for example, using server-side
    copy under the hood of a proxy server move assignment -- is better
    specified in its own extension rather than bolted into
@@ -533,10 +533,22 @@ A write flows:
 -  Client: NFSv3 `WRITE` with stable_how and a byte range.
 -  Proxy: encodes the bytes per the file's encoding, issues
    `CHUNK_WRITE` / `CHUNK_FINALIZE` / `CHUNK_COMMIT` against
-   the real data servers.
--  Proxy: returns NFSv3 WRITE ok with the stable_how it was
-   able to honor (which may be downgraded based on the
-   back-end data server's own stable_how behavior).
+   the real data servers.  If the client requested `FILE_SYNC`
+   or `DATA_SYNC`, the proxy MUST NOT reply until every mirror
+   in the target set has committed the range at (at least) the
+   requested stability; if the back-end cannot provide that
+   stability, the proxy fails the WRITE per {{RFC1813}} S3.3.7
+   (returning `NFS3ERR_IO`) rather than replying success at a
+   weaker stability.
+-  Proxy: for a successful WRITE, returns NFSv3 WRITE ok
+   reporting the stability actually achieved (which MUST be
+   >= the requested stable_how; per {{RFC1813}} S3.3.7 a
+   server may return a *stronger* stability than requested but
+   MUST NOT return a weaker one).  For an `UNSTABLE` client
+   request the proxy MAY reply as soon as it has accepted the
+   data; a subsequent client `COMMIT` drives the range to
+   durability across every mirror in the target set (see the
+   M2 durability rule above).
 
 ### Stateid binding on the translated path
 
@@ -576,7 +588,7 @@ each leg uses to name the file's I/O state.
 ### Why the same PROXY_REGISTRATION machinery
 
 The registered-proxy server mechanism gives the metadata server the information it
-needs for translation-proxy selection: `prr_encodings` enumerates
+needs for translation-proxy selection: `pra_encodings` enumerates
 the encodings the proxy server can translate between, the metadata server <-> proxy server
 session carries the fore-channel control-plane traffic, and
 the lease bounds the relationship.  No new op is required for
@@ -651,7 +663,7 @@ redirector record -- was considered and rejected on those
 three grounds.
 
 Routing all client I/O through the proxy server has a cost deployments
-MUST weigh.  For the duration of a migration the proxy server is a
+must weigh.  For the duration of a migration the proxy server is a
 data-path single point of failure for the file: the client
 sees one data server, the proxy server, and the usual Flex Files
 mitigation -- client-side mirroring across several data servers -- is
@@ -663,7 +675,7 @@ traffic, passes through one proxy server, adding a latency hop and a
 bandwidth bottleneck.  These costs are inherent to the
 single-layout choice; they argue against migrating very
 large files in a single proxy operation, and motivate the
-multi-proxy server and partial-range extensions listed as out of scope
+multi-proxy and partial-range extensions listed as out of scope
 ({{sec-scope-out}}).
 
 ### Two-Layout State on the Metadata Server Side {#sec-two-layout-state}
@@ -697,12 +709,21 @@ L3:
 
 During the migration every client of F -- whichever front
 door it used -- is served a layout naming the proxy server; the proxy server is
-the sole writer to M1 and M2.  No client addresses D, E, or G
-directly.  Because the proxy server is the sole writer, it MUST NOT
-acknowledge a client write until every mirror in M2 is
-durable: an acknowledged write has reached the whole target
-set, so a proxy server crash cannot leave a write acknowledged to the
-client but applied to only part of the mirror set.
+the sole writer to M1 and M2.  No client addresses D or G
+directly.  Because the proxy server is the sole writer, the M2
+durability rule applies at the stability the client requested:
+for a `FILE_SYNC` client write, or for a client-issued `COMMIT`,
+the proxy server MUST NOT acknowledge until every mirror in M2
+is durable at that byte range; for an `UNSTABLE` client write,
+the proxy server MAY acknowledge as soon as it has accepted the
+data and MUST NOT report a stability higher than what the
+back-end mirrors have actually achieved.  A subsequent `COMMIT`
+against that byte range MUST NOT return success until every
+mirror in M2 has committed it.  The invariant is that a proxy
+server crash cannot leave a byte range durable-per-client
+(FILE_SYNC-ack'd or COMMIT-ack'd) but applied to only part of
+the target mirror set; UNSTABLE writes acquire durability at
+COMMIT time as they would against any NFS server.
 
 D's presence in M2 (alongside G) is intentional: the proxy server keeps
 D a current mirror until the PROXY_DONE swap, so a cancelled
@@ -927,10 +948,10 @@ abort early.  None of these operations is sent by pNFS clients.
 ~~~ xdr
 /// /* New operations for the proxy server (proxy server -> metadata server) */
 ///
-/// OP_PROXY_REGISTRATION   = 92;
-/// OP_PROXY_PROGRESS       = 93;
-/// OP_PROXY_DONE           = 94;
-/// OP_PROXY_CANCEL         = 95;
+/// const OP_PROXY_REGISTRATION   = 92;
+/// const OP_PROXY_PROGRESS       = 93;
+/// const OP_PROXY_DONE           = 94;
+/// const OP_PROXY_CANCEL         = 95;
 ~~~
 {: #fig-proxy-server-opnums title="Proxy server operation numbers"}
 
@@ -1091,9 +1112,9 @@ does not own.
 
 ~~~ xdr
 /// struct PROXY_REGISTRATION4args {
-///     ffv2_coding_type4  prr_encodings<>;
-///     uint32_t           prr_lease;
-///     uint32_t           prr_flags;
+///     ffv2_coding_type4  pra_encodings<>;
+///     uint32_t           pra_lease;
+///     uint32_t           pra_flags;
 /// };
 ~~~
 {: #fig-PROXY_REGISTRATION4args title="XDR for PROXY_REGISTRATION4args"}
@@ -1124,7 +1145,7 @@ metadata server records the registration and MAY select that proxy server for
 subsequent MOVE / REPAIR work assignments delivered inline in
 the response to PROXY_PROGRESS.
 
-The prr_encodings field lists the ffv2_coding_type4 values the
+The pra_encodings field lists the ffv2_coding_type4 values the
 proxy server supports.  The proxy server MUST be able to encode, decode, and
 transcode between any pair of values in this list.  Because
 the transformation class of a `PROXY_OP_MOVE` assignment is
@@ -1133,16 +1154,16 @@ encoding-set membership is all the capability information the
 metadata server needs to match.  An empty list results in NFS4ERR_INVAL
 in this revision.
 
-The prr_lease field is the lease duration the proxy server requests in
+The pra_lease field is the lease duration the proxy server requests in
 seconds.  The metadata server MAY grant a shorter one, returned in
 prr_granted_lease.  The proxy server MUST renew before the granted
 lease expires; on expiry the metadata server drops the registration and
 any in-flight migration record owned by this proxy server is abandoned
-(committed to L1 per {{sec-multi-ps-fanout}}).
+(rolled back to L1 per {{sec-multi-ps-fanout}}).
 
-The prr_flags field is reserved for future use.  In this
-revision the proxy server MUST set prr_flags to 0, and a metadata server that
-receives a PROXY_REGISTRATION with any bit of prr_flags set
+The pra_flags field is reserved for future use.  In this
+revision the proxy server MUST set pra_flags to 0, and a metadata server that
+receives a PROXY_REGISTRATION with any bit of pra_flags set
 MUST reject it with NFS4ERR_INVAL.
 
 The "reject, don't ignore" rule follows the NFSv4 extension
@@ -1158,7 +1179,7 @@ the metadata server honored the capability or simply dropped it.
 
 A future revision of this specification (or a successor
 document that updates it) MAY define new bit values in
-prr_flags, following the extension rules of Section 4.2 of
+pra_flags, following the extension rules of Section 4.2 of
 {{RFC8178}}.  A proxy server that understands a newly defined bit MAY
 set it when registering with a metadata server that supports it; on
 NFS4ERR_INVAL the proxy server MAY retry with the bit cleared,
@@ -1277,7 +1298,7 @@ through silence is insufficient.
 ///
 /// union PROXY_PROGRESS4res switch (nfsstat4 ppr_status) {
 /// case NFS4_OK:
-///     PROXY_PROGRESS4resok ppr_resok;
+///     PROXY_PROGRESS4resok ppr_resok4;
 /// default:
 ///     void;
 /// };
@@ -1495,8 +1516,7 @@ keep the recovery window short.
 The metadata server MUST validate, in this priority order, returning the
 first failure encountered:
 
-1. The calling session belongs to a registered proxy server (i.e., the
-   session's owning client has `nc_is_registered_ps` set).
+1. The calling session belongs to a registered proxy server.
    Otherwise: `NFS4ERR_PERM`.
 2. `pd_stateid.other` was minted in the current
    (server_state, boot_seq) tuple.  A proxy_stateid minted in
@@ -1629,6 +1649,42 @@ implementation matter.  The protocol constrains only the
 outcome: the proxy server that receives the assignment is registered at
 delivery time, and the `(pa_file_fh, pa_target_deviceid)` invariant
 holds.
+
+## Per-Proxy-Server In-Flight Cap {#sec-in-flight-cap}
+
+The number of concurrently in-flight assignments a proxy server
+will accept -- its in-flight cap -- is an
+implementation-side self-imposed limit and is not negotiated on
+the wire in this revision.  The metadata server SHOULD NOT
+attempt to discover it and SHOULD NOT queue more assignments to
+a single proxy server than that proxy server can plausibly
+carry; concretely, once a metadata server has queued enough
+assignments to a given proxy server to fill any reasonable
+in-flight budget, it SHOULD prefer other eligible proxy servers
+before continuing to queue against the same one.  A proxy server
+that receives more assignments than it wishes to work on SHOULD
+silently ignore the excess (per {{sec-PROXY_PROGRESS}}): the
+assignments will be re-delivered on subsequent PROXY_PROGRESS
+replies (see the delivery-and-acknowledgment paragraph in
+{{sec-PROXY_PROGRESS}}) and the metadata server MAY reassign
+them to another eligible proxy server if the original does not
+acknowledge within a policy-defined window.
+
+Interaction with the ASSIGNED-state DELAY window: once an
+assignment exists for a file, LAYOUTGET on that file returns
+`NFS4ERR_DELAY` until the proxy server issues its
+`OPEN(CLAIM_PROXY)` (see {{sec-claim-proxy}}).  A silently
+ignored assignment therefore stalls client I/O on the affected
+file until either the proxy server picks it up, the metadata
+server reassigns it, or the assignment is rescinded via
+`PROXY_OP_CANCEL_PRIOR` on lease expiry.  The metadata server's
+reassignment SHOULD run well inside the registration lease so
+that a busy proxy server's silence does not extend a client's
+DELAY window to lease-length latency.  The reserved-for-future-
+use bits of `ppa_flags` are the natural forward-compat slot for
+an explicit proxy-server-initiated decline signal
+({{sec-PROXY_PROGRESS}}) that would remove the ambiguity in a
+later revision.
 
 When a registered proxy server loses its session -- its lease
 expires, its underlying transport is torn down, or its registration
@@ -1961,7 +2017,7 @@ operation has completed -- the real data servers directly.
 In-flight I/O to the old proxy server when the metadata server recalls the layout
 MAY complete at the old proxy server; results remain valid under the
 old proxy server's authority.  New I/O issued after LAYOUTRETURN MUST
-go through the data server(es) the new layout names: a replacement
+go through the data server(s) the new layout names: a replacement
 proxy server, or the real data servers if the proxy operation has completed.
 
 # State Machine {#sec-state-machine}
@@ -2049,6 +2105,17 @@ effect.
                          | source     |
                          | DSes       |
                          | retired    |
+                         +-----+------+
+                               |
+                               | (transient: MDS finalizes
+                               | retirement bookkeeping and
+                               | returns the file to steady
+                               | state under the new layout)
+                               v
+                         +------------+
+                         |   READY    |
+                         | new layout |
+                         | in place   |
                          +------------+
 ~~~
 {: #fig-state-machine title="File state during a proxy operation"}
@@ -2061,8 +2128,10 @@ effect.
 | ASSIGNED | PROXY_ACTIVE | proxy server picks up the assignment | proxy server issues `OPEN(CLAIM_PROXY)` + LAYOUTGET against `pa_file_fh`; metadata server begins serving clients a layout naming the proxy server |
 | PROXY_ACTIVE | COMMITTING | proxy server issues PROXY_DONE with `pd_status=NFS4_OK` | metadata server begins CB_LAYOUTRECALL fan-out to clients still on the old layout |
 | COMMITTING | DONE | All clients have LAYOUTRETURNed | metadata server issues post-move layouts (L2); source DSes retired |
+| DONE | READY | metadata server finalizes retirement bookkeeping | file returns to steady state under the new layout; no wire event is required |
 | ASSIGNED | READY | metadata-server-initiated cancellation: metadata server includes a `PROXY_OP_CANCEL_PRIOR` assignment in the next PROXY_PROGRESS reply | metadata server drops the in-flight record; proxy server drops the assignment from its in-flight queue |
-| PROXY_ACTIVE | READY | proxy server failed and no replacement available; or proxy-server-initiated cancellation via PROXY_CANCEL; or PROXY_DONE with a failing `pd_status` | metadata server reverts layouts to pre-move source set (L1) |
+| PROXY_ACTIVE | COMMITTING | proxy server issues PROXY_DONE with a failing `pd_status`, or PROXY_CANCEL, or the proxy server's lease expires with no replacement available | metadata server begins CB_LAYOUTRECALL fan-out to clients still on the L3 (proxy) layout so they revert to L1; L2 and G are discarded |
+| COMMITTING | READY | All clients that held L3 have LAYOUTRETURNed | file returns to steady state under L1 (the pre-operation layout); no L2 promotion occurs |
 
 # Proxy Server Failure and Recovery
 
@@ -2086,7 +2155,7 @@ layout stateid (REVOKE_STATEID) and, where the data server protocol
 supports it, fences the failed proxy server at the source and target
 data servers.  Fencing closes the window in which a delayed write
 from a failed-but-not-dead proxy server could land after the
-replacement proxy server has taken over -- a two-proxy server instance of the
+replacement proxy server has taken over -- a two-proxy-server instance of the
 write race the single-writer model otherwise prevents.  The
 metadata server then issues CB_LAYOUTRECALL on the old layout and the
 replacement proxy server's layout becomes live for new LAYOUTGETs.
@@ -2276,7 +2345,7 @@ scope is named below.  Credential forwarding, the most
 consequential and the most easily implemented incorrectly,
 is expanded in {{sec-credential-forwarding}}.
 
-proxy server authority:
+Proxy Server Authority:
 :  A proxy server in PROXY_ACTIVE sees all client I/O for the proxied
    file.  A compromised proxy server can observe or modify file data.
    Deployments MUST treat proxy-server-capable hosts as at least as
@@ -2403,9 +2472,11 @@ Authorization remains with the metadata server:
    This is what prevents proxy server deployment from becoming a
    blanket ACL override.
 
-proxy server service identity is for the control plane only:
-:  The proxy server MAY, and typically MUST, use its own service
-   identity for:
+Proxy Server Service Identity Is for the Control Plane Only:
+:  The proxy server MUST use its own service identity for the
+   following, and MUST NOT use it for any other operation on
+   behalf of a forwarded client (per the pass-through rule
+   above):
 
    -  The metadata server <-> proxy server session (the session the proxy server opens to
       the metadata server, on which PROXY_REGISTRATION, PROXY_PROGRESS,
@@ -2440,7 +2511,18 @@ Deployment-level requirements:
 
 -  The metadata server <-> proxy server session MUST use RPCSEC_GSS {{RFC7861}} or
    RPC-over-TLS {{RFC9289}} with mutual authentication.
-   AUTH_SYS on the metadata server <-> proxy server session is forbidden.
+   AUTH_SYS as the *session-authentication* flavor on the
+   metadata server <-> proxy server session is forbidden.  This
+   is distinct from forwarded client credentials: an NFSv3
+   /AUTH_SYS client's credentials MAY ride *inside* a mutually-
+   authenticated (RPCSEC_GSS or RPC-over-TLS) session as the
+   per-operation credential of a proxy-forwarded compound (see
+   the credential-forwarding rules above); what is forbidden is
+   AUTH_SYS on the session itself.  Equivalently, AUTH_SYS is
+   never sufficient for PROXY_REGISTRATION (which authenticates
+   the session), but AUTH_SYS is the ordinary per-operation
+   flavor for an NFSv3 client whose I/O the proxy server
+   forwards under the client's identity.
 
 -  Deployments SHOULD audit both the proxy server's
    credential-forwarding behavior (the proxy server logs what it
@@ -2621,7 +2703,7 @@ heartbeat that every PROXY_PROGRESS produces.
 
 ## Demonstration
 
-A reproducible demonstration of cross-proxy server proxying, exercising
+A reproducible demonstration of cross-proxy proxying, exercising
 the layout-passthrough data path through proxy server A and proxy server B against a
 shared metadata server + 6 data servers, lives in the reffs source under
 `deploy/sanity/`.  The demo does not exercise migration,
@@ -2644,7 +2726,7 @@ For each row the client opens
 performs an encoding-encoded write of a 96 KiB random payload, then
 opens the same filehandle through the proxy server B proxy listener and
 reads it back.  The client's `cmp(1)` of the original payload
-and the proxy server B-served payload returns no differences in all four
+and the proxy server B-served payload returns no differences in all rows of
 rows.
 
 The demo is published with the reffs source; the matrix above
@@ -2736,7 +2818,7 @@ Multiple concurrent proxies per file:
    (two operation ids to track, partial-completion
    bookkeeping, range ownership between proxies) and layout
    complexity (the client sees two proxy server entries in
-   ffs_data_servers and needs routing rules between them).
+   ffv2s_data_servers and needs routing rules between them).
    One-proxy-per-file keeps the mechanism simple; if the
    bandwidth case turns out to dominate in practice, a
    follow-on extension can add parallelism later without
@@ -2779,7 +2861,7 @@ Registration as a capability-scoped authority:
    the session that carries it.
 
 Richer capability advertising:
-:  prr_encodings covers the transformation classes that matter
+:  pra_encodings covers the transformation classes that matter
    for move / repair.  Features that are
    implementation-internal (encryption, compression,
    alignment normalization) do not need to be advertised
