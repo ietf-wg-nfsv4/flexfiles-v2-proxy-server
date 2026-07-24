@@ -2984,5 +2984,5 @@ registration and metadata-server-issued directives.
 
 Sorin Faibish reviewed the document.
 
-Chris Inacio, Chuck Lever, Brian Pawlowski, and Gorry
+Chris Inacio, Brian Pawlowski, Chuck Lever, and Gorry
 Fairhurst guided this process.
