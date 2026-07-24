@@ -2742,7 +2742,15 @@ the editors' infrastructure.
 
 # IANA Considerations {#iana-considerations}
 
-This document has no IANA actions.
+This document requires no new IANA registries.  It does consume the
+following NFSv4.2 code points, assigned via the extension process of
+{{RFC8178}} and provisional until confirmed by the working group.
+They are contiguous with, and shift with, the range assigned by
+{{I-D.haynes-nfsv4-flexfiles-v2}}:
+
+* Operations 92-95: PROXY_REGISTRATION, PROXY_PROGRESS, PROXY_DONE,
+  PROXY_CANCEL (Section 6).
+* proxy_stateid4, a new server-issued stateid type (Section 6.1).
 
 # Interaction with the Main Draft {#interaction}
 
@@ -2973,5 +2981,9 @@ Out of Scope before submission.
 David Flynn and Trond Myklebust shaped the proxy-server
 architecture, in particular the split between proxy
 registration and metadata-server-issued directives.
+
+Sorin Faibish's review of draft-haynes-nfsv4-flexfiles-v2-
+proxy-server-02 caught the IANA-considerations gap
+addressed above.
 
 Brian Pawlowski and Gorry Fairhurst guided this process.
