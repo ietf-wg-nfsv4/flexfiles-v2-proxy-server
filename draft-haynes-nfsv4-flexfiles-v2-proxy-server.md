@@ -2982,8 +2982,7 @@ David Flynn and Trond Myklebust shaped the proxy-server
 architecture, in particular the split between proxy
 registration and metadata-server-issued directives.
 
-Sorin Faibish's review of draft-haynes-nfsv4-flexfiles-v2-
-proxy-server-02 caught the IANA-considerations gap
-addressed above.
+Sorin Faibish reviewed the document.
 
-Brian Pawlowski and Gorry Fairhurst guided this process.
+Chris Inacio, Chuck Lever, Brian Pawlowski, and Gorry
+Fairhurst guided this process.
