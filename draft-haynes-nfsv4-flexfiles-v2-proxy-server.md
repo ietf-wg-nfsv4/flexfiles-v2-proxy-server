@@ -504,6 +504,56 @@ proxy by encoding-ignorant clients (with a proxy layout)
 simultaneously.  The metadata server issues a different layout per
 request; only the encoding-ignorant case routes through the proxy server.
 
+For NFSv4-family clients (NFSv4.0, NFSv4.1, or NFSv4.2 encoding-
+ignorant), the routing arrangement is on-wire: the metadata server
+returns a proxy-fronted layout in LAYOUTGET, and the client's
+existing mount continues to work; the metadata server, not the
+client, decides that this client's next layout points at the proxy
+server.
+
+NFSv3 client routing, by contrast, is NOT dynamic on the wire.  An
+NFSv3 client cannot receive a pNFS layout, cannot observe the FFv2
+proxy indication, and has no protocol path by which the metadata
+server can redirect an already-mounted NFSv3 client through the
+proxy server.  NFSv3 routing is therefore an out-of-band front-door
+export deployment, described here so implementers do not read the
+NFSv3 flow diagrams as implying on-wire redirection:
+
+-  The NFSv3 client mounts the proxy server's NFSv3 export from the
+   start.  The proxy server is the client's server for
+   {{RFC1813}} MOUNT and for every subsequent NFSv3 op; the
+   metadata server is invisible to the NFSv3 client.
+
+-  Filehandle authority belongs to the proxy server.  The proxy
+   server mints its own NFSv3 filehandles (opaque to the client per
+   {{RFC1813}} S3.3.2) and maintains an internal mapping from each
+   NFSv3 filehandle to the (metadata-server file, current layout)
+   pair.  The NFSv3 filehandle bytes are not derived from and do
+   not need to match the metadata-server-issued nfs_fh4.
+
+-  Export namespace authority belongs to the proxy server.  The
+   proxy server owns the exports it serves to NFSv3 clients; a
+   given proxy server MAY re-export a subset of the metadata
+   server's namespace, and a deployment MAY run multiple proxy
+   servers each re-exporting different subsets.  The metadata
+   server is not required to be an NFSv3 server.
+
+-  Because the routing is fixed at mount time, no on-wire
+   discovery contract exists between the metadata server and the
+   NFSv3 client: the deployment operator directs NFSv3 clients at
+   the proxy server via the normal MOUNT protocol
+   ({{RFC1813}} S5) and DNS/administrative means.  A metadata
+   server that decides to retire or migrate a proxy server MUST
+   coordinate that change with the operator; there is no
+   protocol path by which the metadata server can cause a mounted
+   NFSv3 client to fail over automatically.
+
+The NFSv3 read/write flows described below are therefore what the
+proxy server does when it receives an NFSv3 op from a client that
+was mounted at the proxy server's endpoint from the start; they
+are not what the metadata server does to redirect an existing
+NFSv3 client.
+
 ### Mechanism
 
 A translating proxy runs two sides that meet internally.  On
@@ -843,12 +893,14 @@ quiesced case they are recalled before the proxy server work starts.
   | <--- NFS4_OK, ppr_assignments   | (zero or more entries; one
   |       includes MOVE assignment  |  delivers the MOVE work)
   |                                 |
-  | ---- OPEN(pa_file_fh) --------> | (PS picks up the work)
+  | ---- PUTFH(pa_file_fh) -------> | (PS picks up the work)
+  | ---- OPEN(CLAIM_PROXY,           |
+  |         pa_stateid) -----------> |
   | ---- LAYOUTGET (L3 composite) > |
   |                                 |
   |  [PS drives move: reads source  |
   |   DSes, encodes per destination |
-  |   encoding, writes destination     |
+  |   encoding, writes destination  |
   |   DSes via L3 fan-out]          |
   |                                 |
   | ---- PROXY_PROGRESS ----------> | (heartbeat; lease renewal,
@@ -859,14 +911,21 @@ quiesced case they are recalled before the proxy server work starts.
   | ---- SEQUENCE                   |
   |      PUTFH(pa_file_fh)          |
   |      LAYOUTRETURN(L3_stid)      |
-  |      PROXY_DONE(L3_stid, OK) -> | (terminal: commit L1 -> L2)
+  |      PROXY_DONE(pa_stateid, OK)>| (terminal: PROXY_DONE
+  |                                 |  carries the minted
+  |                                 |  proxy_stateid, not the
+  |                                 |  L3 layout stateid;
+  |                                 |  commit L1 -> L2)
   | <--- NFS4_OK ------------------ |
   |                                 |
   |                                 | --- CB_LAYOUTRECALL --->
-  |                                 |     (to clients holding L1)
+  |                                 |     (to clients holding L3;
+  |                                 |      L1 was drained before
+  |                                 |      PROXY_ACTIVE was
+  |                                 |      entered)
   |                                 |
   |                                 | <-- LAYOUTRETURN ------
-  |                                 |     (from each client)
+  |                                 |     (from each L3 client)
   |                                 |
   |                                 | (MDS retires source DSes;
   |                                 |  next LAYOUTGET on this
@@ -938,31 +997,35 @@ PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
 This document defines four new NFSv4.2 operations that a proxy server
 issues to the metadata server on the
 fore-channel of the proxy server -> metadata server session defined in
-{{sec-design-session}}.  PROXY_REGISTRATION (92) is issued
-once at session setup and on renewal.  PROXY_PROGRESS (93) is
+{{sec-design-session}}.  PROXY_REGISTRATION (96) is issued
+once at session setup and on renewal.  PROXY_PROGRESS (97) is
 issued by the proxy server as a heartbeat-and-poll: the proxy server
 renews its registration lease and requests new work; the metadata
 server replies inline with zero or more new work assignments.  Per-
 migration terminal reporting is not carried on PROXY_PROGRESS.
-PROXY_DONE (94) commits or rolls back an individual migration when
-the proxy server finishes it; PROXY_CANCEL (95) lets the proxy server
+PROXY_DONE (98) commits or rolls back an individual migration when
+the proxy server finishes it; PROXY_CANCEL (99) lets the proxy server
 abort early.  None of these operations is sent by pNFS clients.
 
 ~~~ xdr
 /// /* New operations for the proxy server (proxy server -> metadata server) */
 ///
-/// const OP_PROXY_REGISTRATION   = 92;
-/// const OP_PROXY_PROGRESS       = 93;
-/// const OP_PROXY_DONE           = 94;
-/// const OP_PROXY_CANCEL         = 95;
+/// const OP_PROXY_REGISTRATION   = 96;
+/// const OP_PROXY_PROGRESS       = 97;
+/// const OP_PROXY_DONE           = 98;
+/// const OP_PROXY_CANCEL         = 99;
 ~~~
 {: #fig-proxy-server-opnums title="Proxy server operation numbers"}
 
-Opcodes 92 through 95 continue the control-plane opcode range that
-{{I-D.haynes-nfsv4-flexfiles-v2}} opens at 89 (TRUST_STATEID through
-BULK_REVOKE_STATEID at 89-91).  The flow direction is opposite: 89-
-91 are metadata-server-to-data-server, while 92-95 are proxy-server-
-to-metadata-server.
+Opcodes 96 through 99 extend the control-plane opcode range opened
+by {{I-D.haynes-nfsv4-flexfiles-v2}}: that document assigns 89-91 to
+metadata-server-to-data-server operations (TRUST_STATEID through
+BULK_REVOKE_STATEID) and 92-95 to the MDS-side escrow control-plane
+operations (CHUNK_ESCROW_INSTALL through CHUNK_ESCROW_TAKEOVER).
+Opcodes 96-99 continue the family ledger for proxy-server-to-
+metadata-server operations; these values MUST NOT overlap any value
+allocated by {{I-D.haynes-nfsv4-flexfiles-v2}} or by any other
+document in the flexfiles-v2 family.
 
 This document also defines one new EXCHGID4_FLAG value used at
 session establishment to identify a proxy-server session
@@ -1094,11 +1157,17 @@ seqid bump.
 
 The `seqid` field of `proxy_stateid4` is set by the metadata server
 at minting time (typically 1) and does not change over the
-assignment's lifetime; the proxy server echoes the minted value on
-PROXY_DONE and PROXY_CANCEL.  The seqid slot is retained for
-consistency with the general NFSv4 stateid shape in {{RFC8881}}
-S8.2.4 and to permit future extensions; it does not participate in
-NFS4ERR_OLD_STATEID checks in this revision.
+assignment's lifetime; the proxy server MUST echo the minted value
+verbatim on PROXY_DONE and PROXY_CANCEL.  The metadata server MUST
+validate exact seqid equality on those operations and MUST reject a
+mismatch with `NFS4ERR_OLD_STATEID` (see PROXY_DONE authorization
+step 6 in {{sec-PROXY_DONE}}, which PROXY_CANCEL imports).  The
+seqid slot does not otherwise bump over the assignment's lifetime;
+the exact-equality rule reduces to "the caller presents the
+minted value unchanged" and is retained for consistency with the
+general NFSv4 stateid shape in {{RFC8881}} S8.2.4 and for a
+common failure-mode signal when a proxy server confuses one
+assignment's stateid with another's.
 
 ### Authorization
 
@@ -1113,13 +1182,17 @@ this check, a proxy server that learned another proxy server's proxy_stateid
 could drive its PROXY_DONE / PROXY_CANCEL on a migration it
 does not own.
 
-## Operation 92: PROXY_REGISTRATION - Register as Proxy Server {#sec-PROXY_REGISTRATION}
+## Operation 96: PROXY_REGISTRATION - Register as Proxy Server {#sec-PROXY_REGISTRATION}
 
 ### ARGUMENTS
 
 ~~~ xdr
+/// const PROXY_REGISTRATION_ID_NEW = 0;
+/// const PROXY_MAX_ENCODINGS       = 32;
+///
 /// struct PROXY_REGISTRATION4args {
-///     ffv2_coding_type4  pra_encodings<>;
+///     uint64_t           pra_registration_id;
+///     ffv2_coding_type4  pra_encodings<PROXY_MAX_ENCODINGS>;
 ///     uint32_t           pra_lease;
 ///     uint32_t           pra_flags;
 /// };
@@ -1193,12 +1266,58 @@ NFS4ERR_INVAL the proxy server MAY retry with the bit cleared,
 treating the response as the {{RFC8178}} Section 4.4.3
 signal that the metadata server does not recognize the bit.
 
-On success, the metadata server returns a prr_registration_id that
-identifies this registration.  The proxy server uses it to renew the
-registration before the granted lease expires (by re-issuing
-PROXY_REGISTRATION with the same prr_registration_id) and
-to identify itself across reconnects (see the squat-guard
-text below).
+The pra_registration_id field carries the registration
+identity the proxy server presents on this call.  On a
+first-time registration the proxy server MUST set
+`pra_registration_id = PROXY_REGISTRATION_ID_NEW` (0); the
+metadata server assigns a fresh non-zero registration ID and
+returns it in `prr_registration_id`.  On renewal (and on any
+call intended to re-associate with an existing registration
+across reconnect), the proxy server MUST set
+`pra_registration_id` to the non-zero value the metadata server
+previously returned in `prr_registration_id`; the metadata
+server MUST match this against its live registration table.
+
+The metadata server distinguishes the three cases as follows:
+
+-  `pra_registration_id == PROXY_REGISTRATION_ID_NEW`: fresh
+   registration.  The metadata server MUST assign a new
+   non-zero registration ID, cryptographically bound (see
+   below) to the caller's authenticated identity, and return
+   it in `prr_registration_id`.
+
+-  `pra_registration_id` matches a live registration under
+   the caller's authenticated identity: renewal.  The
+   metadata server MUST refresh the granted lease and return
+   the same `prr_registration_id`.
+
+-  `pra_registration_id` is non-zero but does not match any
+   live registration (unknown or stale ID): the metadata
+   server MUST reject with `NFS4ERR_STALE_CLIENTID`.  The
+   proxy server MAY retry with `PROXY_REGISTRATION_ID_NEW`
+   to obtain a fresh registration.
+
+-  `pra_registration_id` matches a live registration but the
+   caller's authenticated identity differs from the identity
+   bound to that registration: the metadata server MUST
+   reject with `NFS4ERR_PERM`.  This is the principal
+   binding that prevents a malicious registrant from
+   hijacking another proxy server's slot by guessing its
+   registration ID.
+
+The metadata server MUST assign `prr_registration_id` values
+that are unpredictable to any party other than the assigning
+metadata server and the recipient proxy server (a random or
+otherwise cryptographically unpredictable 64-bit value), so
+that a passive observer cannot guess a valid ID to present.
+Replay protection follows from the session's replay cache
+(Section 2.10.6 of {{RFC8881}}); replay of a captured
+PROXY_REGISTRATION beyond the replay-cache window MUST fail
+because a matched ID under a differently authenticated
+principal is rejected as above.  The value 0 is reserved as
+`PROXY_REGISTRATION_ID_NEW` and MUST NOT be assigned by the
+metadata server; a registration ID of 0 in `pra_registration_id`
+means "first registration" and never "renew".
 
 Registration conveys capabilities only; the proxy server's network
 endpoint is conveyed through the same deviceinfo channel as
@@ -1249,9 +1368,13 @@ same identity while its prior registration still holds a valid
 lease -- squatting on its own slot -- the metadata server MUST
 refuse the duplicate: the metadata server returns NFS4ERR_DELAY and
 SHOULD log the conflict.  A renewal -- distinguished by the proxy
-server re-presenting the same `prr_registration_id` it received on
-the prior registration -- is not squatting and the metadata server
-MUST accept it (refreshing the granted lease).
+server presenting in `pra_registration_id` the same non-zero
+value it received in `prr_registration_id` on the prior
+registration -- is not squatting and the metadata server MUST
+accept it (refreshing the granted lease).  A call whose
+`pra_registration_id` is `PROXY_REGISTRATION_ID_NEW` against an
+identity that already holds a live registration is squatting
+and MUST be refused.
 
 Registration revocation before lease expiry is not a dedicated
 operation in this revision.  A metadata server that needs to revoke a proxy server
@@ -1269,7 +1392,7 @@ A future revision MAY define a dedicated PROXY_REVOKE
 operation if operational experience shows lease revocation
 through silence is insufficient.
 
-## Operation 93: PROXY_PROGRESS - Heartbeat and Receive Work Assignments {#sec-PROXY_PROGRESS}
+## Operation 97: PROXY_PROGRESS - Heartbeat and Receive Work Assignments {#sec-PROXY_PROGRESS}
 
 ### ARGUMENTS
 
@@ -1289,18 +1412,21 @@ through silence is insufficient.
 ///     PROXY_OP_CANCEL_PRIOR = 2
 /// };
 ///
+/// const PROXY_MAX_DESCRIPTOR_BYTES   = 4096;
+/// const PROXY_MAX_ASSIGNMENTS_PER_OP = 64;
+///
 /// struct proxy_assignment4 {
 ///     proxy_op_kind4    pa_kind;
 ///     proxy_stateid4    pa_stateid;
 ///     nfs_fh4           pa_file_fh;
 ///     deviceid4         pa_source_deviceid;
 ///     deviceid4         pa_target_deviceid;
-///     opaque            pa_descriptor<>;
+///     opaque            pa_descriptor<PROXY_MAX_DESCRIPTOR_BYTES>;
 /// };
 ///
 /// struct PROXY_PROGRESS4resok {
 ///     uint32_t              ppr_lease_remaining_sec;
-///     proxy_assignment4     ppr_assignments<>;
+///     proxy_assignment4     ppr_assignments<PROXY_MAX_ASSIGNMENTS_PER_OP>;
 /// };
 ///
 /// union PROXY_PROGRESS4res switch (nfsstat4 ppr_status) {
@@ -1332,18 +1458,31 @@ proxy-server-side appetite signaling (e.g., "do not give me more
 assignments right now") without an XDR break.
 
 The metadata server returns work assignments inline in
-`ppr_assignments<>`.  A proxy server that does not want new work simply
-ignores the assignments past its in-flight cap; the metadata server does
-not retract assignments once acknowledged (see below), other than via
-an explicit `PROXY_OP_CANCEL_PRIOR` assignment in a later
-PROXY_PROGRESS reply.  Each assignment names
-a single file (`pa_file_fh`), the source and target data servers
-the migration moves data between
-(`pa_source_deviceid` / `pa_target_deviceid`), and a
-kind-specific opaque descriptor (`pa_descriptor<>`) for future
-extensions (for example, a precomputed source-layout
-descriptor so the proxy server can dial source data servers without a second
-LAYOUTGET).  The `pa_stateid` field carries the
+`ppr_assignments<PROXY_MAX_ASSIGNMENTS_PER_OP>`.  A single
+PROXY_PROGRESS reply MUST NOT carry more than
+`PROXY_MAX_ASSIGNMENTS_PER_OP` (64) assignments.  The
+metadata server MUST additionally verify, before constructing
+the reply, that the encoded PROXY_PROGRESS4resok fits within
+the session's negotiated `ca_maxresponsesize` (Section 18.36
+of {{RFC8881}}); if the next assignment on its queue would
+overflow the response, the metadata server MUST short-return
+(omit that assignment and any that follow it from this reply)
+and MUST include the omitted assignments in a subsequent
+PROXY_PROGRESS reply.  Short-return is not itself an error;
+the delivery rules above ensure the omitted assignments are
+re-offered on the next call.  A proxy server that does not
+want new work simply ignores the assignments past its
+in-flight cap; the metadata server does not retract
+assignments once acknowledged (see below), other than via an
+explicit `PROXY_OP_CANCEL_PRIOR` assignment in a later
+PROXY_PROGRESS reply.  Each assignment names a single file
+(`pa_file_fh`), the source and target data servers the
+migration moves data between (`pa_source_deviceid` /
+`pa_target_deviceid`), and a kind-specific opaque descriptor
+(`pa_descriptor<PROXY_MAX_DESCRIPTOR_BYTES>`, bounded at 4096
+bytes) for future extensions (for example, a precomputed
+source-layout descriptor so the proxy server can dial source
+data servers without a second LAYOUTGET).  The `pa_stateid` field carries the
 `proxy_stateid4` ({{sec-proxy-stateid}}) the metadata server has minted
 for this migration; the proxy server presents it in the
 `OPEN(CLAIM_PROXY)` that binds it to the file
@@ -1416,17 +1555,36 @@ and the existing PUTFH semantics apply unchanged.
 
 The `ppr_lease_remaining_sec` field is the metadata server's
 acknowledgment of this PROXY_PROGRESS as a registration lease
-renewal.  It is the number of seconds remaining until the proxy server's
-registration would expire absent further PROXY_PROGRESS.  A
-well-behaved proxy server treats it as a lower bound on its next poll
-deadline; the metadata server MAY return a smaller value than the standard
-NFSv4 lease period to drive a busy proxy server to poll more often or
-to encourage a quiet one to back off.
+renewal.  It is the number of seconds remaining until the proxy
+server's registration would expire absent further
+PROXY_PROGRESS.  It is an UPPER bound on the safe next-poll
+interval, not a lower bound: the proxy server MUST issue its
+next PROXY_PROGRESS strictly before this many seconds have
+elapsed, minus a safety margin for network round-trip time and
+local clock skew.  A proxy server that lets its next poll
+slip past `ppr_lease_remaining_sec` will find its registration
+already expired; the metadata server will have discarded its
+in-flight migration records, and every subsequent PROXY_PROGRESS
+or PROXY_DONE / PROXY_CANCEL will fail with
+`NFS4ERR_STALE_CLIENTID` (see the lease-expiry paragraph in
+{{sec-PROXY_REGISTRATION}}).
 
-Polling cadence: lease/2 in steady state.  Adaptive backoff to
-lease and then 2*lease after K consecutive empty replies;
-reset on any non-empty reply.  The metadata server may override the
-cadence via `ppr_lease_remaining_sec`.
+Polling cadence: the proxy server SHOULD poll at
+`ppr_lease_remaining_sec / 2` in steady state to leave one
+whole renewal interval of headroom.  Adaptive backoff on
+consecutive empty replies is permitted only within the safe
+budget: the proxy server MAY extend its polling interval up to
+a bound `B < ppr_lease_remaining_sec - S` where `S` is the
+safety margin above, and MUST reset the cadence on any
+non-empty reply.  Under no adaptive backoff rule may a next
+poll be scheduled at or after `ppr_lease_remaining_sec` from
+the current reply.  The metadata server MAY shrink the
+effective cadence by returning a smaller
+`ppr_lease_remaining_sec` on subsequent replies, driving a
+busy proxy server to poll more often.  A metadata server that
+returns `ppr_lease_remaining_sec = 0` signals immediate
+expiry; the proxy server MUST re-register before issuing any
+further work-bearing operation.
 
 The metadata-server-initiated cancellation case (the metadata server abandons an
 in-flight assignment before the proxy server has driven it to terminal
@@ -1440,14 +1598,14 @@ PROXY_CANCEL ({{sec-PROXY_CANCEL}}).
 The proxy-server-to-metadata-server protocol uses two new fore-channel operations
 in addition to the extended PROXY_PROGRESS:
 
-`PROXY_DONE` (op 94):
+`PROXY_DONE` (op 98):
 :  proxy server reports terminal success or failure on a specific
    in-flight migration.  The metadata server uses the pd_status to
    atomically commit (success: swap the file's active layout
    from L1 to L2) or roll back (failure: keep L1, drop
    L2/G).
 
-`PROXY_CANCEL` (op 95):
+`PROXY_CANCEL` (op 99):
 :  proxy server aborts a work item it was assigned but cannot complete
    (e.g., source data server becomes unreachable, proxy server resource
    exhaustion).  The metadata server treats this as PROXY_DONE with a
@@ -1468,7 +1626,7 @@ and to the LAYOUTGET that follows (see {{sec-claim-proxy}}), but the
 migration record itself is keyed on the `proxy_stateid`, not on the
 layout stateid subsequently returned by LAYOUTGET.
 
-## Operation 94: PROXY_DONE - Commit or Roll Back a Proxy Operation {#sec-PROXY_DONE}
+## Operation 98: PROXY_DONE - Commit or Roll Back a Proxy Operation {#sec-PROXY_DONE}
 
 ### ARGUMENTS
 
@@ -1533,13 +1691,14 @@ first failure encountered:
 4. The proxy operation identified by `pd_stateid` is owned by
    the calling session's registered-proxy server identity.  The
    identity captured at PROXY_REGISTRATION time -- the
-   `prr_registration_id` if non-empty, or the matched GSS
-   principal / mTLS fingerprint otherwise -- is the
-   authorization principal, not the per-EXCHANGE_ID
-   `clientid4`.  This makes PROXY_DONE / PROXY_CANCEL
-   tolerant of proxy server reconnect: a proxy server that drops its session and
-   reconnects with a fresh EXCHANGE_ID but the same
-   `prr_registration_id` retains authority over its in-flight
+   `prr_registration_id` (a non-zero 64-bit value), plus the
+   matched GSS principal / mTLS fingerprint that identity was
+   bound to at registration -- is the authorization principal,
+   not the per-EXCHANGE_ID `clientid4`.  This makes PROXY_DONE
+   / PROXY_CANCEL tolerant of proxy server reconnect: a proxy
+   server that drops its session and reconnects with a fresh
+   EXCHANGE_ID but the same `prr_registration_id` retains
+   authority over its in-flight
    migrations.  Mismatch returns `NFS4ERR_PERM`.
 5. The current filehandle (set by the preceding PUTFH) is the
    `pa_file_fh` of the proxy operation identified by
@@ -1554,16 +1713,33 @@ If all validations succeed, the metadata server atomically:
 
 -  For a `pd_status` of `NFS4_OK`: commits the migration --
    promotes L2 to be the file's layout (D dropped, G promoted),
-   drops L1 and L3, issues CB_LAYOUTRECALL on the prior layout
-   to external clients still holding cached L1 references, and
-   defers final removal of the decommissioned mirror D until
-   all L1 holders return their layouts.  See
-   {{sec-atomic-commit}} for the full mechanics.
--  For any other `pd_status`: leaves the file's layout
-   unchanged -- L1 stays in force; L2 and L3 are discarded.
-   No CB_LAYOUTRECALL is needed (external clients never saw
-   the post-image).  The proxy server owns cleanup of any half-written
-   data it placed on the target G.
+   and enters the L3 drain phase.  Client-held L1 layouts were
+   already recalled and returned before the migration entered
+   the active phase (a precondition of L3 issuance, see
+   {{sec-multi-ps-fanout}}); during migration, clients hold L3.
+   The metadata server therefore MUST issue CB_LAYOUTRECALL on
+   L3 to every client that received it, MUST retain enough L3
+   bookkeeping to accept the resulting client LAYOUTRETURN
+   fan-out, and MUST defer both the final retirement of the L3
+   bookkeeping and the final removal of the decommissioned
+   mirror D until every L3 holder has returned its layout.
+   New reads and writes issued after PROXY_DONE commit are
+   served against L2 (the new active layout); L3 is drained,
+   not left in force.  See {{sec-atomic-commit}} for the full
+   mechanics.
+-  For any other `pd_status`: reverts the migration --
+   restores L1 as the file's active layout; L2 and L3 are
+   discarded.  Client-held L3 layouts (issued during
+   migration) MUST be recalled and drained before L3
+   bookkeeping is retired -- clients received L3 during the
+   active phase and MUST be given the opportunity to complete
+   or abort the associated I/O through the abort fence
+   defined in {{sec-PROXY_CANCEL}}.  Once L3 is drained,
+   external clients transparently see the pre-migration L1;
+   no CB_LAYOUTRECALL of L1 is needed because L1 was recalled
+   before entering the active phase and is being reissued
+   fresh on next LAYOUTGET.  The proxy server owns cleanup of
+   any half-written data it placed on the target G.
 
 In both cases the metadata server retires the proxy operation; `pd_stateid`
 is thereafter invalid.
@@ -1572,7 +1748,7 @@ Atomicity is critical: external client traffic must transition
 cleanly across this op; either the per-instance deltas commit
 fully or they do not commit at all.
 
-## Operation 95: PROXY_CANCEL - Abort a Proxy Operation {#sec-PROXY_CANCEL}
+## Operation 99: PROXY_CANCEL - Abort a Proxy Operation {#sec-PROXY_CANCEL}
 
 ### ARGUMENTS
 
@@ -1623,14 +1799,73 @@ that owns the proxy operation identified by `pc_stateid` MUST
 match the caller's, or the metadata server returns `NFS4ERR_PERM`; a proxy server
 cannot cancel another proxy server's migration.
 
-#### Side effects
+#### Side effects and the abort fence {#sec-abort-fence}
 
-If validation succeeds, layout-side effects mirror PROXY_DONE
-with a failing `pd_status` -- L1 stays in force; L2 and L3 are
-discarded; the half-filled target G is the proxy server's to clean up.
-The metadata server retires the proxy operation, invalidates `pc_stateid`,
-and (informatively) updates its operator-facing telemetry to
-record the cancellation.  No CB_LAYOUTRECALL is needed.
+PROXY_CANCEL, PROXY_DONE with a failing `pd_status`, and
+implicit teardown from registration expiry all revert the
+migration.  Reverting from any of these paths, if it discards
+L3 without fencing delayed I/O, can leave acknowledged writes
+in the abandoned G or acknowledged writes from a delayed L3
+holder landing after the revert; both produce
+acknowledged-but-unreachable or divergent data.  All three
+paths MUST therefore apply the same abort fence before the
+metadata server discards L2/L3 and before L1 is reissued to
+subsequent LAYOUTGETs:
+
+1.  **Stop new L3 issuance.**  The metadata server MUST
+    refuse any further LAYOUTGET that would return L3 for
+    this file; subsequent client LAYOUTGETs receive L1 (or
+    NFS4ERR_LAYOUTUNAVAILABLE if L1 recall is still in
+    flight).
+
+2.  **Recall or revoke client-held L3.**  For every client to
+    which L3 was issued, the metadata server MUST issue
+    CB_LAYOUTRECALL(L3) and MUST retain L3 bookkeeping until
+    the resulting LAYOUTRETURNs arrive.  If a client fails
+    to return within the layout-recall grace period, the
+    metadata server MUST revoke the client's L3 layout
+    stateid via the ordinary NFSv4.1 layout revocation
+    mechanism (Section 12.5.5 of {{RFC8881}}).
+
+3.  **Fence the proxy server's backend stateids.**  In every
+    coupling mode, the metadata server MUST fence any
+    stateid the proxy server was using against the source or
+    target data servers, so that a delayed write from the
+    (now-terminated) proxy operation cannot land after the
+    revert.  In trusted-stateid tight coupling
+    ({{I-D.haynes-nfsv4-flexfiles-v2}}, sec-TRUST_STATEID)
+    the metadata server MUST issue REVOKE_STATEID (or the
+    bulk equivalent) against every data server that carried
+    the proxy server's stateid.  In loose coupling the
+    metadata server MUST revoke the proxy server's own
+    NFSv4.1 stateids at the source and target data servers
+    via the data-server-native mechanism.
+
+4.  **Drain in-flight I/O.**  After steps 1-3, the metadata
+    server MUST wait for any in-flight compound the proxy
+    server has already issued against a fenced data server
+    to fail (either at the data server, which rejects with
+    NFS4ERR_STALE_STATEID / NFS4ERR_ADMIN_REVOKED, or by
+    transport timeout).  The metadata server MAY use its
+    session's own back-channel state to accelerate this
+    drain, but MUST NOT declare the abort complete before
+    the data servers have had at least one lease period to
+    observe the fence.
+
+5.  **Retire L2/L3 bookkeeping.**  Only after steps 1-4 have
+    each completed MAY the metadata server discard the L2
+    and L3 layouts, drop G (or leave it for administrative
+    cleanup), retire the proxy operation, invalidate the
+    proxy stateid (`pc_stateid` for PROXY_CANCEL,
+    `pd_stateid` for a failing PROXY_DONE), and update
+    operator-facing telemetry.  L1 MAY then be reissued to
+    ordinary LAYOUTGET traffic.
+
+The abort fence applies verbatim to registration expiry:
+when the metadata server abandons an in-flight migration
+because the owning proxy server's registration lease has
+expired ({{sec-PROXY_REGISTRATION}}), it MUST run the
+five-step fence before dropping the migration record.
 
 The distinction between PROXY_DONE(FAIL) and PROXY_CANCEL is
 purely intent / accounting: PROXY_DONE(FAIL) records that the
@@ -1639,7 +1874,8 @@ PROXY_CANCEL records that the proxy server abandoned the assignment
 without attempting it (or while attempting, decided not to
 report a specific failure cause).  A metadata server implementation MAY
 surface the distinction in operator telemetry but MUST NOT
-make any behavioral distinction on the wire.
+make any behavioral distinction on the wire.  In particular,
+the abort fence above is identical for both.
 
 # Multi-Proxy Server Assignment Fan-out {#sec-multi-ps-fanout}
 
@@ -1677,21 +1913,49 @@ replies (see the delivery-and-acknowledgment paragraph in
 them to another eligible proxy server if the original does not
 acknowledge within a policy-defined window.
 
-Interaction with the ASSIGNED-state DELAY window: once an
-assignment exists for a file, LAYOUTGET on that file returns
-`NFS4ERR_DELAY` until the proxy server issues its
-`OPEN(CLAIM_PROXY)` (see {{sec-claim-proxy}}).  A silently
-ignored assignment therefore stalls client I/O on the affected
-file until either the proxy server picks it up, the metadata
-server reassigns it, or the assignment is rescinded via
-`PROXY_OP_CANCEL_PRIOR` on lease expiry.  The metadata server's
-reassignment SHOULD run well inside the registration lease so
-that a busy proxy server's silence does not extend a client's
-DELAY window to lease-length latency.  The reserved-for-future-
-use bits of `ppa_flags` are the natural forward-compat slot for
-an explicit proxy-server-initiated decline signal
-({{sec-PROXY_PROGRESS}}) that would remove the ambiguity in a
-later revision.
+Interaction with the ASSIGNED state: a file in ASSIGNED
+continues to be served against its pre-migration layout
+(L1) until the metadata server observes the assigned proxy
+server's `OPEN(CLAIM_PROXY)` for that file's `pa_file_fh`.
+LAYOUTGET on a file in ASSIGNED MUST return the pre-migration
+L1 layout (or MUST return `NFS4ERR_DELAY` only if the
+metadata server has already begun issuing L3 in anticipation
+of an imminent proxy-server pickup; the DELAY window MUST
+NOT persist across delivery attempts).  This is
+"at-least-once delivery, no acceptance implied": the
+metadata server MUST NOT block client I/O for the duration
+of an unacknowledged assignment.
+
+To bound how long an assigned-but-unacknowledged migration
+lingers, the metadata server MUST enforce a bounded
+delivery count and a bounded delivery deadline:
+
+-  The metadata server MUST include the same
+   `proxy_assignment4` in at most a policy-defined maximum
+   `A_MAX` consecutive PROXY_PROGRESS replies without
+   observing the acknowledging `OPEN(CLAIM_PROXY)`.  A
+   RECOMMENDED default is `A_MAX = 3`.
+
+-  If the metadata server has issued `A_MAX` copies of an
+   assignment without acknowledgment, or a policy-defined
+   delivery-deadline interval `T_DELIVERY` has elapsed
+   since the first delivery, whichever occurs first, the
+   metadata server MUST rescind the assignment via
+   `PROXY_OP_CANCEL_PRIOR` in the next PROXY_PROGRESS
+   reply.  It MAY then reassign the same
+   `(pa_file_fh, kind)` to a different eligible proxy
+   server, restarting the delivery counter, or return the
+   file to READY.
+
+-  If a proxy server declines to accept new assignments
+   because its local queue is full, it SHOULD simply not
+   send PROXY_PROGRESS until it has capacity, relying on
+   the metadata server's rescission-and-reassignment path
+   above.  A future revision MAY define an explicit
+   proxy-server-initiated decline signal in the
+   reserved-for-future-use bits of `ppa_flags`
+   ({{sec-PROXY_PROGRESS}}); such a signal is not required
+   for correctness under the rules above.
 
 When a registered proxy server loses its session -- its lease
 expires, its underlying transport is torn down, or its registration
@@ -2033,10 +2297,12 @@ A file's participation in a proxy operation passes through
 five states: READY (no operation in flight), ASSIGNED (the
 metadata server has queued an assignment for a proxy server but the proxy server has not
 acknowledged it via OPEN+LAYOUTGET), PROXY_ACTIVE (the proxy server
-is driving a move or repair), COMMITTING (the proxy server has issued
-PROXY_DONE(OK) and the metadata server is recalling the old layout from
-external clients), and DONE (clients are on the post-move
-layout, source data servers retired).  The state is metadata-server-local:
+is driving a move or repair and external clients hold the
+transitional L3 composite layout), COMMITTING (the proxy
+server has issued PROXY_DONE(OK) and the metadata server is
+recalling L3 from those L3-holding clients), and DONE
+(clients are on the post-move L2 layout, source data servers
+retired).  The state is metadata-server-local:
 clients never observe these state names directly, but a
 client's behaviour is shaped by which layout the metadata server is
 currently handing out.  A given file spends most of its
@@ -2133,7 +2399,7 @@ effect.
 |------|-----|---------|---------|
 | READY | ASSIGNED | metadata server decides to move or repair | metadata server queues a `proxy_assignment4` (kind=MOVE or REPAIR) for delivery in the next PROXY_PROGRESS reply to the selected proxy server; creates the in-flight migration record |
 | ASSIGNED | PROXY_ACTIVE | proxy server picks up the assignment | proxy server issues `OPEN(CLAIM_PROXY)` + LAYOUTGET against `pa_file_fh`; metadata server begins serving clients a layout naming the proxy server |
-| PROXY_ACTIVE | COMMITTING | proxy server issues PROXY_DONE with `pd_status=NFS4_OK` | metadata server begins CB_LAYOUTRECALL fan-out to clients still on the old layout |
+| PROXY_ACTIVE | COMMITTING | proxy server issues PROXY_DONE with `pd_status=NFS4_OK` | metadata server begins CB_LAYOUTRECALL fan-out to clients holding L3 (issued during PROXY_ACTIVE); L1 was already recalled and drained before PROXY_ACTIVE was entered |
 | COMMITTING | DONE | All clients have LAYOUTRETURNed | metadata server issues post-move layouts (L2); source DSes retired |
 | DONE | READY | metadata server finalizes retirement bookkeeping | file returns to steady state under the new layout; no wire event is required |
 | ASSIGNED | READY | metadata-server-initiated cancellation: metadata server includes a `PROXY_OP_CANCEL_PRIOR` assignment in the next PROXY_PROGRESS reply | metadata server drops the in-flight record; proxy server drops the assignment from its in-flight queue |
@@ -2748,7 +3014,7 @@ following NFSv4.2 code points, assigned via the extension process of
 They are contiguous with, and shift with, the range assigned by
 {{I-D.haynes-nfsv4-flexfiles-v2}}:
 
-* Operations 92-95: PROXY_REGISTRATION, PROXY_PROGRESS, PROXY_DONE,
+* Operations 96-99: PROXY_REGISTRATION, PROXY_PROGRESS, PROXY_DONE,
   PROXY_CANCEL (Section 6).
 * proxy_stateid4, a new server-issued stateid type (Section 6.1).
 
