@@ -1293,9 +1293,23 @@ The metadata server distinguishes the three cases as follows:
 
 -  `pra_registration_id` is non-zero but does not match any
    live registration (unknown or stale ID): the metadata
-   server MUST reject with `NFS4ERR_STALE_CLIENTID`.  The
-   proxy server MAY retry with `PROXY_REGISTRATION_ID_NEW`
-   to obtain a fresh registration.
+   server MUST reject with `NFS4ERR_STALE_CLIENTID`.  This is
+   the outcome a reconnecting proxy server observes when the
+   metadata server has rebooted without persisting its
+   registration table (see {{sec-mds-recovery}}); the proxy
+   server SHOULD retry immediately with
+   `PROXY_REGISTRATION_ID_NEW` (0) to obtain a fresh
+   registration.  The registration table is not required to
+   survive a metadata-server reboot: the wire mechanism does
+   not oblige the metadata server to persist
+   `(prr_registration_id, bound principal, granted
+   capabilities, lease)` across its own restart, and a
+   metadata server that persists none of it is conformant.
+   In-flight migration records tied to the stale
+   `prr_registration_id` are lost per the drop rules in
+   {{sec-lost-migration-records}}; the fresh registration
+   returned by the retry has a new
+   `prr_registration_id` and no prior migration ownership.
 
 -  `pra_registration_id` matches a live registration but the
    caller's authenticated identity differs from the identity
@@ -1698,8 +1712,10 @@ first failure encountered:
    / PROXY_CANCEL tolerant of proxy server reconnect: a proxy
    server that drops its session and reconnects with a fresh
    EXCHANGE_ID but the same `prr_registration_id` retains
-   authority over its in-flight
-   migrations.  Mismatch returns `NFS4ERR_PERM`.
+   authority over its in-flight migrations, provided the
+   metadata server still holds that registration (see
+   {{sec-ps-recovery}} step 2 for the metadata-server-restart
+   case).  Mismatch returns `NFS4ERR_PERM`.
 5. The current filehandle (set by the preceding PUTFH) is the
    `pa_file_fh` of the proxy operation identified by
    `pd_stateid`.  Otherwise: `NFS4ERR_BAD_STATEID`.
@@ -1972,7 +1988,12 @@ its EXCHANGE_ID returns the prior `clientid` or a fresh one; no
 reassignment is needed.  The proxy server reclaims its per-file
 layouts via the metadata-server-recovery path in
 {{sec-mds-recovery}}, presenting each migration's `proxy_stateid` to
-OPEN(CLAIM_PROXY).
+OPEN(CLAIM_PROXY).  The prior `prr_registration_id` is available for
+re-presentation only while the metadata server holds it in the
+registration table; a metadata-server restart that discards the
+table forces the proxy server onto the fresh-registration retry path
+in {{sec-ps-recovery}} step 2, at which point migration ownership
+resets.
 
 A host that does not implement the proxy server role simply
 does not call PROXY_REGISTRATION and is never selected for
@@ -2488,17 +2509,43 @@ following steps in order:
    proxy server's `clientid4` is restored when the metadata server recognizes the
    prior `client_owner4`.
 
-2. **PROXY_REGISTRATION** with the proxy server's prior
-   `prr_registration_id`.  Re-registration is idempotent:
-   the proxy server sends the same fields it would for a first-time
-   registration and the metadata server accepts them as re-establishing
-   the proxy server role on this session.  The metadata server does not assume
-   that it retained any record of this proxy server being registered
-   previously; PROXY_REGISTRATION is the proxy server's explicit
-   assertion that it has the proxy server role for this session.  Until this step
-   completes, the metadata server treats the client as an ordinary
-   NFSv4 client and MUST NOT deliver proxy assignments to
-   it.
+2. **PROXY_REGISTRATION** to re-establish the proxy-server
+   role on the new session.  The proxy server attempts
+   renewal first, presenting its prior
+   `prr_registration_id`, and inspects the result:
+
+   -  **Renewal accepted** (`NFS4ERR_STALE_CLIENTID` NOT
+      returned): the metadata server retained the
+      registration across its own restart; the proxy server
+      keeps the same `prr_registration_id` and the
+      migration records tied to it remain in force.
+      Proceed to step 3.
+
+   -  **`NFS4ERR_STALE_CLIENTID`**: the metadata server
+      lost its registration table across the restart (see
+      the third bullet at {{sec-PROXY_REGISTRATION}}).  The
+      proxy server MUST retry PROXY_REGISTRATION with
+      `pra_registration_id = PROXY_REGISTRATION_ID_NEW` (0)
+      to obtain a fresh registration.  The fresh
+      `prr_registration_id` returned by the metadata server
+      is unrelated to the prior one and carries no prior
+      migration ownership; the metadata server's assignment
+      queue for this proxy server in step 3 will
+      necessarily be empty, and every retained sidecar
+      entry falls through to step 5 to be dropped per
+      {{sec-lost-migration-records}}.
+
+   -  **`NFS4ERR_PERM`**: another party is currently
+      registered under this `prr_registration_id` with a
+      different authenticated identity; the proxy server
+      MUST NOT retry with the prior ID.  This is a
+      deployment or credentialing fault, not a routine
+      recovery outcome, and is out of scope for the
+      autopilot recovery path.
+
+   Until PROXY_REGISTRATION completes, the metadata server
+   treats the client as an ordinary NFSv4 client and MUST
+   NOT deliver proxy assignments to it.
 
 3. **PROXY_PROGRESS** to pull the assignment queue.  If the
    metadata server has retained any in-flight migrations owned by this
@@ -2577,14 +2624,19 @@ server process state was lost), the new EXCHANGE_ID gets a fresh
 `clientid4`.  The in-flight migration records are keyed on
 `proxy_stateid` and authorized to the proxy server by its
 `prr_registration_id` (see PROXY_DONE authorization step 4,
-{{sec-PROXY_DONE}}), so the records survive the clientid rollover:
-the reconnecting proxy server, on presenting the same
-`prr_registration_id`, retains authority over its in-flight
-migrations and reclaims each one's per-file layout via
-OPEN(CLAIM_PROXY) with the record's `proxy_stateid`.  Migration
-records the metadata server did not retain across its own recovery
-are handled by the drop rules in {{sec-lost-migration-records}};
-the autopilot re-issues fresh assignments at its discretion.
+{{sec-PROXY_DONE}}), so the records survive the clientid rollover
+provided the metadata server still holds the prior
+`prr_registration_id` in its registration table: the reconnecting
+proxy server, on presenting the same `prr_registration_id`, retains
+authority over its in-flight migrations and reclaims each one's
+per-file layout via OPEN(CLAIM_PROXY) with the record's
+`proxy_stateid`.  When the metadata server did not retain the
+registration -- either because a metadata-server restart discarded
+the registration table (see {{sec-ps-recovery}} step 2) or because
+the migration records themselves were not retained across the
+metadata server's recovery -- the drop rules in
+{{sec-lost-migration-records}} apply and the autopilot re-issues
+fresh assignments at its discretion.
 
 ## Lost Migration Records {#sec-lost-migration-records}
 
@@ -3122,14 +3174,17 @@ Transitive proxy:
    protocol rule.
 
 Migration-state retention across restart:
-:  The recovery model leaves retention of in-flight
-   migration state across a metadata server restart to the
-   implementation; a metadata server that retains nothing is
-   conformant.  Should the document nonetheless add a
-   SHOULD recommending retention, so that a reboot does not
-   discard the progress of a large move?  Production
-   deployments would likely want it; it is a
-   quality-of-implementation recommendation only, with no
+:  The recovery model leaves retention of both the
+   registration table and in-flight migration state across a
+   metadata server restart to the implementation; a metadata
+   server that retains neither is conformant, and a
+   reconnecting proxy server whose prior
+   `prr_registration_id` is unknown takes the fresh-ID retry
+   path in {{sec-ps-recovery}} step 2.  Should the document
+   nonetheless add a SHOULD recommending retention of both,
+   so that a reboot does not discard the progress of a large
+   move?  Production deployments would likely want it; it is
+   a quality-of-implementation recommendation only, with no
    effect on interoperability.
 
 Registration as a capability-scoped authority:
