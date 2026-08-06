@@ -459,17 +459,17 @@ from one backend object store to another) and the old
 filehandles become unresolvable on the new backend.  Without a
 proxy, every client holding a layout has to be individually
 recalled and re-issued.  With a proxy, the metadata server points all
-clients at the proxy (keeping their existing stateids and FHs
-intact), the proxy reconciles old-to-new FHs internally, and
+clients at the proxy (keeping their existing stateids and filehandles
+intact), the proxy reconciles old-to-new filehandles internally, and
 clients are recalled only at the end.
 
 This same mechanism covers several related situations: an
-NFSv3-to-NFSv4.2 data server protocol upgrade where the data server FHs change
-as a side effect of migrating from {{RFC1813}} to
+NFSv3-to-NFSv4.2 data server protocol upgrade where the data server
+filehandles change as a side effect of migrating from {{RFC1813}} to
 {{RFC8881}} semantics; a data-server-side format change that
-invalidates existing FHs (for example, a transition from a
-local POSIX store to an object store); and backend-opaque FH
-migration where the data server's FH structure is internally
+invalidates existing filehandles (for example, a transition from a
+local POSIX store to an object store); and backend-opaque filehandle
+migration where the data server's filehandle structure is internally
 versioned and old clients hold stale versions.
 
 ## Encoding Translation for Encoding-Ignorant Clients {#sec-encoding-translation}
@@ -2896,8 +2896,9 @@ proxy server <-> metadata server session.
 This traversal cannot always run under forwarded client
 credentials: at the point the proxy server needs to discover a new export
 (a client has not yet asked for it, or the proxy server has just restarted
-and has no FH cache) there is no client whose credentials the proxy server
-could forward.  Deployments have two choices for how the proxy server
+and has no filehandle cache) there is no client whose credentials the
+proxy server could forward.  Deployments have two choices for how the
+proxy server
 acquires namespace shape:
 
 Grant a narrow traversal privilege:
