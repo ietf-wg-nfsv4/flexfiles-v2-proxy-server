@@ -957,8 +957,8 @@ The metadata server may decide to retract an assignment.  Two cases:
 Assignment not yet acknowledged by the proxy server:
 :  The metadata server includes a `PROXY_OP_CANCEL_PRIOR` assignment in
    the next PROXY_PROGRESS reply, naming the same
-   `(pa_file_fh, pa_target_deviceid)` pair as the prior MOVE
-   / REPAIR assignment.  The proxy server, which has not yet OPEN'd
+   `(pa_file_fh, pa_target_deviceid)` pair as the prior MOVE or
+   REPAIR assignment.  The proxy server, which has not yet OPEN'd
    the file, simply drops the prior assignment from its
    in-flight queue.
 
@@ -1215,7 +1215,7 @@ A proxy server calls PROXY_REGISTRATION on the
 fore-channel of its session to the metadata server
 ({{sec-design-session}}) to declare its capabilities.  The
 metadata server records the registration and MAY select that proxy server for
-subsequent MOVE / REPAIR work assignments delivered inline in
+subsequent MOVE or REPAIR work assignments delivered inline in
 the response to PROXY_PROGRESS.
 
 The pra_encodings field lists the ffv2_encoding_type4 values the
@@ -2411,7 +2411,7 @@ effect.
 
 | From | To | Trigger | Actions |
 |------|-----|---------|---------|
-| READY | ASSIGNED | metadata server decides to move or repair | metadata server queues a `proxy_assignment4` (kind=MOVE or REPAIR) for delivery in the next PROXY_PROGRESS reply to the selected proxy server; creates the in-flight migration record |
+| READY | ASSIGNED | metadata server decides to move or repair | metadata server queues a `proxy_assignment4` (MOVE or REPAIR) for delivery in the next PROXY_PROGRESS reply to the selected proxy server; creates the in-flight migration record |
 | ASSIGNED | PROXY_ACTIVE | proxy server picks up the assignment | proxy server issues `OPEN(CLAIM_PROXY)` + LAYOUTGET against `pa_file_fh`; metadata server begins serving clients a layout naming the proxy server |
 | PROXY_ACTIVE | COMMITTING | proxy server issues PROXY_DONE with `pd_status=NFS4_OK` | metadata server begins CB_LAYOUTRECALL fan-out to clients holding L3 (issued during PROXY_ACTIVE); L1 was already recalled and drained before PROXY_ACTIVE was entered |
 | COMMITTING | DONE | All clients have LAYOUTRETURNed | metadata server issues post-move layouts (L2); source DSes retired |
@@ -2429,7 +2429,7 @@ it receives NFS4ERR_DELAY (if the proxy server is reachable but
 unhealthy) or connection errors (if unreachable), and the
 affected clients report LAYOUTERROR to the metadata server.  The metadata server MAY
 select a replacement proxy server from the registered pool and queue a
-fresh `proxy_assignment4` (kind MOVE or REPAIR) for that proxy server
+fresh `proxy_assignment4` (MOVE or REPAIR) for that proxy server
 in its next PROXY_PROGRESS reply, with the source layout
 updated to reflect current reality -- destination data servers that
 the failed proxy server populated are now part of the source set -- and
