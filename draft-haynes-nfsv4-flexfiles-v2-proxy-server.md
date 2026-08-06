@@ -2224,7 +2224,8 @@ approach -- whole-layout swap -- that captures the simplest
 case (single mirror replacement under a Client Side Mirroring
 encoding).  A metadata server implementation that supports more general
 migrations (e.g., a single shard add to an erasure-coded
-file, or a partial mirror-set rotation under flexible file v2 layout RS) MAY
+file, or a partial mirror-set rotation under a Reed-Solomon
+encoding) MAY
 record migration state as per-instance deltas on the file's
 existing layout records, rather than as a complete L2/L3 pair.
 
@@ -3074,7 +3075,7 @@ assigned by {{I-D.haynes-nfsv4-flexfiles-v2}}:
 
 The mechanism this document specifies is built on top of
 four constructs that {{I-D.haynes-nfsv4-flexfiles-v2}}
-defines: the chunk_guard4 compare-and-swap primitive, the
+defines: the chunk_guard4 compare-and-swap (CAS) primitive, the
 CHUNK_LOCK mechanism, the CB_CHUNK_REPAIR per-chunk repair
 callback, and the TRUST_STATEID / REVOKE_STATEID control
 plane.  None of these are modified or extended here; this
