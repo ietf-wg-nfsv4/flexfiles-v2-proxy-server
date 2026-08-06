@@ -1957,11 +1957,7 @@ delivery count and a bounded delivery deadline:
    because its local queue is full, it SHOULD simply not
    send PROXY_PROGRESS until it has capacity, relying on
    the metadata server's rescission-and-reassignment path
-   above.  A future revision MAY define an explicit
-   proxy-server-initiated decline signal in the
-   reserved-for-future-use bits of `ppa_flags`
-   ({{sec-PROXY_PROGRESS}}); such a signal is not required
-   for correctness under the rules above.
+   above.
 
 When a registered proxy server loses its session -- its lease
 expires, its underlying transport is torn down, or its registration
