@@ -300,9 +300,11 @@ reasonable future extension.
 
 Journaling and partial moves:
 :  Move assignments in this revision are always whole-file.
-   The proxy server performs a CSM-style write to all mirrors (source
+   The proxy server performs a client-side mirroring write
+   (see the Client-Side Mirroring section of
+   {{I-D.haynes-nfsv4-flexfiles-v2}}) to all mirrors -- source
    D, destination G, and any other mirrors in the file's
-   mirror set) while reading source bytes from any mirror
+   mirror set -- while reading source bytes from any mirror
    in the source set; the two-layout state on the metadata server keeps
    client traffic on L1 throughout, with an atomic swap to
    L2 at PROXY_DONE time ({{sec-two-layout-state}}).
@@ -758,7 +760,7 @@ L3:
    - `M1` (read source): the L1 mirror set.  The proxy server reads
      source bytes from any mirror in M1.
    - `M2` (write target): the L1 mirror set PLUS G.  The proxy server
-     writes via CSM to every mirror in M2.
+     writes via client-side mirroring to every mirror in M2.
 
 During the migration every client of F -- whichever front
 door it used -- is served a layout naming the proxy server; the proxy server is
@@ -796,7 +798,8 @@ the client.
 - L1.mirrors = the file's pre-migration mirror set, includes D
 - L2.mirrors = (L1.mirrors \ {D}) union {G}
 - L3.M1 = L1.mirrors  (proxy server's read-source set)
-- L3.M2 = L1.mirrors union {G}  (proxy server's CSM write-target set)
+- L3.M2 = L1.mirrors union {G}  (proxy server's
+  client-side mirroring write-target set)
 
 ## Session Between Metadata Server and Proxy Server {#sec-design-session}
 
