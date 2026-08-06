@@ -159,14 +159,14 @@ Registered proxy server:
 
 Proxy operation:
 :  A metadata-server-orchestrated activity carried out by a
-   proxy server on a single file: either a migration (MOVE), a
-   repair (REPAIR), or an encoding translation.  Referred to
+   proxy server on a single file: either a migration (`PROXY_OP_MOVE`), a
+   repair (`PROXY_OP_REPAIR`), or an encoding translation.  Referred to
    collectively as an "assignment" once the metadata server
    has committed it to a specific proxy server and minted a
    `proxy_stateid` for it ({{sec-proxy-stateid}}).
 
 Migration:
-:  A proxy operation of kind PROXY_OP_MOVE that shifts a file
+:  A `PROXY_OP_MOVE` proxy operation that shifts a file
    from one mirror set (L1, the source) to another (L2, the
    destination).
 
@@ -374,8 +374,8 @@ scenarios are described below.
 
 An administrator rsyncs a file from an external source into the
 cluster as a single-copy file.  Server policy requires the file
-to be mirrored or erasure coded.  The metadata server queues a MOVE
-assignment for the file; the next PROXY_PROGRESS poll from a
+to be mirrored or erasure coded.  The metadata server queues a
+`PROXY_OP_MOVE` assignment for the file; the next PROXY_PROGRESS poll from a
 registered proxy whose encoding set covers the destination layout
 returns the assignment in its response.  The proxy populates
 the destination from the source, while any client that opens
@@ -395,7 +395,7 @@ must be erasure coded", "high-access-rate files must have
 additional mirrors") requires transforming a file's layout
 without user visibility.  The transformation is purely a layout
 change; the file contents are unchanged except at the shard
-level.  The MOVE assignment carries the new layout's geometry
+level.  The `PROXY_OP_MOVE` assignment carries the new layout's geometry
 and encoding type via the destination deviceid in
 `proxy_assignment4`; the proxy reshapes the file's shards to
 match.  Because the transformation type (encode / decode /
@@ -409,8 +409,8 @@ field.
 A data server is scheduled for maintenance (hardware
 replacement, software upgrade, decommission).  All files whose
 layouts reference that data server must be evacuated to replacement
-data servers before it is taken offline.  The metadata server queues a MOVE
-assignment per file (source = the outgoing data server, target = a
+data servers before it is taken offline.  The metadata server queues a
+`PROXY_OP_MOVE` assignment per file (source = the outgoing data server, target = a
 replacement); registered proxies pick the assignments up via
 PROXY_PROGRESS polls.  Evacuation can be large-scale (thousands
 or millions of files); running per-client per-chunk repair over
@@ -422,7 +422,7 @@ to the per-proxy server in-flight cap ({{sec-multi-ps-fanout}}).
 
 Multiple data servers have failed such that per-chunk repair cannot
 reconstruct the file in place.  The metadata server constructs a new layout
-backed by replacement data servers and queues a REPAIR assignment.  The
+backed by replacement data servers and queues a `PROXY_OP_REPAIR` assignment.  The
 next registered-proxy server PROXY_PROGRESS poll receives the assignment;
 the proxy drives reconstruction from whatever surviving shards
 remain.  If fewer than k shards survive across the mirror set,
@@ -957,8 +957,8 @@ The metadata server may decide to retract an assignment.  Two cases:
 Assignment not yet acknowledged by the proxy server:
 :  The metadata server includes a `PROXY_OP_CANCEL_PRIOR` assignment in
    the next PROXY_PROGRESS reply, naming the same
-   `(pa_file_fh, pa_target_deviceid)` pair as the prior MOVE or
-   REPAIR assignment.  The proxy server, which has not yet OPEN'd
+   `(pa_file_fh, pa_target_deviceid)` pair as the prior
+   `PROXY_OP_MOVE` or `PROXY_OP_REPAIR` assignment.  The proxy server, which has not yet OPEN'd
    the file, simply drops the prior assignment from its
    in-flight queue.
 
@@ -1215,7 +1215,8 @@ A proxy server calls PROXY_REGISTRATION on the
 fore-channel of its session to the metadata server
 ({{sec-design-session}}) to declare its capabilities.  The
 metadata server records the registration and MAY select that proxy server for
-subsequent MOVE or REPAIR work assignments delivered inline in
+subsequent `PROXY_OP_MOVE` or `PROXY_OP_REPAIR` work assignments
+delivered inline in
 the response to PROXY_PROGRESS.
 
 The pra_encodings field lists the ffv2_encoding_type4 values the
@@ -1518,14 +1519,15 @@ The `pa_kind` discriminates the work type:
    already cleaned up the in-flight migration record on its
    side and retired the proxy_stateid).
 
-For each PROXY_OP_MOVE or PROXY_OP_REPAIR assignment, the proxy
+For each `PROXY_OP_MOVE` or `PROXY_OP_REPAIR` assignment, the
+proxy
 server begins by issuing a normal NFSv4 OPEN+LAYOUTGET against
 `pa_file_fh` (the L3 composite layout), performs the data movement
 `pa_kind` calls for, and reports terminal status via
 PROXY_DONE(pa_stateid, ...) ({{sec-PROXY_DONE}}) or
 PROXY_CANCEL(pa_stateid) ({{sec-PROXY_CANCEL}}).
 
-Delivery of a PROXY_OP_MOVE or PROXY_OP_REPAIR assignment is
+Delivery of a `PROXY_OP_MOVE` or `PROXY_OP_REPAIR` assignment is
 at-least-once.  There is no explicit acknowledgment: the proxy
 server's `OPEN(CLAIM_PROXY)` on the assignment's `pa_file_fh` serves
 as one.
@@ -1989,7 +1991,7 @@ resets.
 
 A host that does not implement the proxy server role simply
 does not call PROXY_REGISTRATION and is never selected for
-a MOVE or REPAIR assignment.  A deployment with no
+a `PROXY_OP_MOVE` or `PROXY_OP_REPAIR` assignment.  A deployment with no
 registered proxy server falls back to per-chunk CB_CHUNK_REPAIR for
 single-shard repair, to admin-coordinated offline procedures
 for policy transitions and data server evacuation, and to blocking data server
@@ -2017,8 +2019,8 @@ On a LAYOUTGET, the metadata server chooses one of three outcomes:
    includes the file's coding.  This is the unchanged flexible file v2 layout
    path.
 
--  A single-data server layout naming the proxy server, when a MOVE or REPAIR
-   migration is in flight for the file, or when the client's
+-  A single-data server layout naming the proxy server, when a `PROXY_OP_MOVE` or
+   `PROXY_OP_REPAIR` migration is in flight for the file, or when the client's
    coding-type support set does not include the file's coding
    and a registered proxy server can translate.  The layout's
    single `ffv2_data_server4` entry has `FFV2_DS_FLAGS_PROXY` set
@@ -2411,7 +2413,7 @@ effect.
 
 | From | To | Trigger | Actions |
 |------|-----|---------|---------|
-| READY | ASSIGNED | metadata server decides to move or repair | metadata server queues a `proxy_assignment4` (MOVE or REPAIR) for delivery in the next PROXY_PROGRESS reply to the selected proxy server; creates the in-flight migration record |
+| READY | ASSIGNED | metadata server decides to move or repair | metadata server queues a `proxy_assignment4` (`PROXY_OP_MOVE` or `PROXY_OP_REPAIR`) for delivery in the next PROXY_PROGRESS reply to the selected proxy server; creates the in-flight migration record |
 | ASSIGNED | PROXY_ACTIVE | proxy server picks up the assignment | proxy server issues `OPEN(CLAIM_PROXY)` + LAYOUTGET against `pa_file_fh`; metadata server begins serving clients a layout naming the proxy server |
 | PROXY_ACTIVE | COMMITTING | proxy server issues PROXY_DONE with `pd_status=NFS4_OK` | metadata server begins CB_LAYOUTRECALL fan-out to clients holding L3 (issued during PROXY_ACTIVE); L1 was already recalled and drained before PROXY_ACTIVE was entered |
 | COMMITTING | DONE | All clients have LAYOUTRETURNed | metadata server issues post-move layouts (L2); source DSes retired |
@@ -2429,7 +2431,8 @@ it receives NFS4ERR_DELAY (if the proxy server is reachable but
 unhealthy) or connection errors (if unreachable), and the
 affected clients report LAYOUTERROR to the metadata server.  The metadata server MAY
 select a replacement proxy server from the registered pool and queue a
-fresh `proxy_assignment4` (MOVE or REPAIR) for that proxy server
+fresh `proxy_assignment4` (`PROXY_OP_MOVE` or `PROXY_OP_REPAIR`) for
+that proxy server
 in its next PROXY_PROGRESS reply, with the source layout
 updated to reflect current reality -- destination data servers that
 the failed proxy server populated are now part of the source set -- and
@@ -2686,8 +2689,8 @@ Transport security across the operation:
 
 Principal binding during a proxy operation:
 :  For proxy-server-to-data-server traffic (the proxy server reading source data servers and
-   writing destination data servers to carry out a MOVE or REPAIR
-   assignment), the proxy server presents a principal to those data servers
+   writing destination data servers to carry out a `PROXY_OP_MOVE` or
+   `PROXY_OP_REPAIR` assignment), the proxy server presents a principal to those data servers
    that they will accept; this is the proxy server's own service
    identity unless constrained delegation or equivalent is
    arranged.  Forwarding the client's identity to the peer
@@ -2806,7 +2809,8 @@ Proxy Server Service Identity Is for the Control Plane Only:
       by this draft).
    -  Peer-data server session setup for proxy-server-driven data movement
       (reading source data servers, writing destination data servers under
-      a MOVE assignment the metadata server has delivered via
+      a `PROXY_OP_MOVE` assignment the metadata server has delivered
+      via
       PROXY_PROGRESS).
    -  proxy server housekeeping.
 
@@ -3114,8 +3118,8 @@ original holder becomes unreachable during the operation.
 
 ## CB_CHUNK_REPAIR
 
-Per-chunk CB_CHUNK_REPAIR and an in-flight proxy MOVE or
-REPAIR migration on the same file are mutually exclusive at
+Per-chunk CB_CHUNK_REPAIR and an in-flight proxy `PROXY_OP_MOVE`
+or `PROXY_OP_REPAIR` migration on the same file are mutually exclusive at
 any given time.  The metadata server MUST NOT issue CB_CHUNK_REPAIR for a
 file currently in PROXY_ACTIVE; the proxy server handles any mid-move
 repair internally.  If the metadata server decides a proxied file also
@@ -3242,7 +3246,7 @@ DEVICEID_REGISTRATION generalization:
       power domain, network domain, cooling domain).  An
       admin who needs to power down a rack can drive the
       metadata server to recall all layouts referencing data servers in that
-      zone and evacuate files via PROXY_OP_MOVE assignments
+      zone and evacuate files via `PROXY_OP_MOVE` assignments
       before the outage.
 
    -  Storage media type (SSD / HDD / tape / cloud tier),
@@ -3293,7 +3297,7 @@ candidate follow-on work items, useful to a future revision's
 planner.  A future editorial pass MAY merge this list into
 Out of Scope before submission.
 
--  Partial-range PROXY_OP_MOVE assignments.
+-  Partial-range `PROXY_OP_MOVE` assignments.
 -  Multi-proxy pipelines for very large files.
 -  Automated proxy selection with load balancing.
 -  Proxy-failure predicate (when should the metadata server pre-emptively
