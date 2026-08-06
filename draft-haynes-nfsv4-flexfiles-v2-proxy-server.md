@@ -2008,11 +2008,11 @@ move operations.
 
 # Layout Shape During a Proxy Operation {#sec-layout-shape}
 
-The layout the metadata server hands out to clients while a proxy
-operation is active is the only part of the mechanism a client
-ever sees.  Everything else in this document -- the session,
-the ops, the credential-forwarding rules -- is between the
-metadata server and the proxy server.  The layout shape is therefore what a client
+While a proxy operation is active, a client sees only one part of
+the mechanism: the layout the metadata server hands it.  Everything
+else in this document -- the session, the ops, the
+credential-forwarding rules -- is between the metadata server and
+the proxy server.  The layout shape is therefore what a client
 implementer needs to read to know how its code interacts with
 a proxied file.
 
