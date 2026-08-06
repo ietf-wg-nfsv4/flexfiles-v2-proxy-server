@@ -1019,15 +1019,11 @@ abort early.  None of these operations is sent by pNFS clients.
 ~~~
 {: #fig-proxy-server-opnums title="Proxy server operation numbers"}
 
-Opcodes 96 through 99 extend the control-plane opcode range opened
-by {{I-D.haynes-nfsv4-flexfiles-v2}}: that document assigns 89-91 to
-metadata-server-to-data-server operations (TRUST_STATEID through
-BULK_REVOKE_STATEID) and 92-95 to the metadata-server-side escrow control-plane
-operations (CHUNK_ESCROW_INSTALL through CHUNK_ESCROW_TAKEOVER).
-Opcodes 96-99 continue the family ledger for
-proxy-server-to-metadata-server operations; these values MUST NOT overlap any value
-allocated by {{I-D.haynes-nfsv4-flexfiles-v2}} or by any other
-document in the flexfiles-v2 family.
+Opcodes 96 through 99 continue the control-plane range opened by
+{{I-D.haynes-nfsv4-flexfiles-v2}}, which allocates 78 through 95, and
+carry the proxy-server-to-metadata-server operations.  These values
+MUST NOT overlap any value allocated by that document or by any other
+document in the flexible file v2 layout family.
 
 This document also defines one new EXCHGID4_FLAG value used at
 session establishment to identify a proxy-server session
