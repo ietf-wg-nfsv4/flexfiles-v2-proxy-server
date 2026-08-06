@@ -1271,7 +1271,7 @@ server MUST match this against its live registration table.
 
 The metadata server distinguishes the three cases as follows:
 
--  `pra_registration_id == PROXY_REGISTRATION_ID_NEW`: fresh
+-  `pra_registration_id = PROXY_REGISTRATION_ID_NEW`: fresh
    registration.  The metadata server MUST assign a new
    non-zero registration ID, cryptographically bound (see
    below) to the caller's authenticated identity, and return
