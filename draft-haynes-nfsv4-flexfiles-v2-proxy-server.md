@@ -466,7 +466,7 @@ clients are recalled only at the end.
 This same mechanism covers several related situations: an
 NFSv3-to-NFSv4.2 data server protocol upgrade where the data server
 filehandles change as a side effect of migrating from {{RFC1813}} to
-{{RFC8881}} semantics; a data-server-side format change that
+{{RFC7862}} semantics; a data-server-side format change that
 invalidates existing filehandles (for example, a transition from a
 local POSIX store to an object store); and backend-opaque filehandle
 migration where the data server's filehandle structure is internally
