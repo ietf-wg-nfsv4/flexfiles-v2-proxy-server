@@ -108,7 +108,7 @@ the proxy server.  While a migration is in progress every client
 routes its I/O through the proxy server; for encoding translation, only
 a client that cannot encode the file does.
 
-Flex Files v1 ({{RFC8435}}) provides no standardized mechanism
+The flexible file v1 layout ({{RFC8435}}) provides no standardized mechanism
 for migrating a file's layout while the file remains in use.  Without such
 primitives, migration is left to implementation-specific
 machinery and cannot be performed safely across
@@ -386,7 +386,7 @@ the destination from the source, while any client that opens
 the file during the move sees a layout that routes I/O through
 the proxy.
 
-The source "layout" may not even be a Flex Files layout; it
+The source "layout" may not even be a flexible file layout; it
 could be a non-pNFS NFS mount that the proxy reads as an
 NFSv4.2 client.  Throughout the move the proxy presents the
 file to pNFS clients as if the move had not started, while
@@ -719,7 +719,7 @@ three grounds.
 Routing all client I/O through the proxy server has a cost deployments
 must weigh.  For the duration of a migration the proxy server is a
 data-path single point of failure for the file: the client
-sees one data server, the proxy server, and the usual Flex Files
+sees one data server, the proxy server, and the usual flexible file
 mitigation -- client-side mirroring across several data servers -- is
 unavailable to it.  A file under migration therefore has
 lower availability than a normally-mirrored file until
@@ -2214,7 +2214,8 @@ This omit-and-replace ordering guarantees that no client write
 hits D after the migration has started.  The alternative --
 keep-and-shadow, in which the layout view continues to include
 D and the proxy server shadows client writes from D to G as they happen
--- requires the proxy server to expose itself as a flex-files data server
+-- requires the proxy server to expose itself as a flexible file v2 data
+server
 (an `INTERPOSED` instance taking the place of D in the visible
 layout, with the proxy server funneling writes to both D and G).  This
 shape is defined in the per-instance delta model below
