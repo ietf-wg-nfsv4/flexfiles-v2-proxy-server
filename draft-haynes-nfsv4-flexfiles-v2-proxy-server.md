@@ -2317,23 +2317,36 @@ proxy server, or the real data servers if the proxy operation has completed.
 
 # State Machine {#sec-state-machine}
 
-A file's participation in a proxy operation passes through
-five states: READY (no operation in flight), ASSIGNED (the
-metadata server has queued an assignment for a proxy server but the proxy server has not
-acknowledged it via OPEN+LAYOUTGET), PROXY_ACTIVE (the proxy server
-is driving a move or repair and external clients hold the
-transitional L3 composite layout), COMMITTING (the proxy
-server has issued PROXY_DONE(OK) and the metadata server is
-recalling L3 from those L3-holding clients), and DONE
-(clients are on the post-move L2 layout, source data servers
-retired).  The state is metadata-server-local:
-clients never observe these state names directly, but a
-client's behavior is shaped by which layout the metadata server is
-currently handing out.  A given file spends most of its
-lifetime in READY; a proxy operation is a relatively short
-excursion through the other four states, after which the
-file returns to READY with a new layout in place (or, on
-cancellation or failure, with the old layout preserved).
+A file's participation in a proxy operation passes through five
+states.
+
+READY:
+:  No operation is in flight.
+
+ASSIGNED:
+:  The metadata server has queued an assignment for a proxy server,
+   but that proxy server has not acknowledged it via OPEN +
+   LAYOUTGET.
+
+PROXY_ACTIVE:
+:  The proxy server is driving a move or repair, and external clients
+   hold the transitional L3 composite layout.
+
+COMMITTING:
+:  The proxy server has issued PROXY_DONE(OK), and the metadata server
+   is recalling L3 from the clients holding it.
+
+DONE:
+:  Clients are on the post-move L2 layout and the source data servers
+   are retired.
+
+The state is metadata-server-local: clients never observe these state
+names directly, but a client's behavior is shaped by which layout the
+metadata server is currently handing out.  A given file spends most of
+its lifetime in READY; a proxy operation is a relatively short
+excursion through the other four states, after which the file returns
+to READY with a new layout in place -- or, on cancellation or failure,
+with the old layout preserved.
 
 The diagram below shows the states and the principal
 transitions, including the failure exits from ASSIGNED and
