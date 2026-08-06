@@ -1034,14 +1034,12 @@ session establishment to identify a proxy-server session
 ~~~
 {: #fig-exchgid-flag-use-proxy-server title="Proxy-server EXCHGID4 flag"}
 
-The value is assigned outside the existing MASK_PNFS block
-(0x00070000 in {{Section 18.35.3 of RFC8881}}) and adjacent to
+The value sits outside the existing MASK_PNFS block (0x00070000 in
+{{Section 18.35.3 of RFC8881}}) and adjacent to
 `EXCHGID4_FLAG_USE_ERASURE_DS` (`0x00100000`,
-{{I-D.haynes-nfsv4-flexfiles-v2}}) among the family's flags,
-so that the erasure-data-server bit and the proxy-server bit do not
-collide.  Values are subject to IANA assignment on publication;
-should IANA assign a different value, the numeric constant here
-and its uses throughout this document are updated to match.
+{{I-D.haynes-nfsv4-flexfiles-v2}}), so that the erasure-data-server
+bit and the proxy-server bit do not collide.  The registration is
+requested in {{iana-considerations}}.
 
 The following amendment blocks extend the nfs_argop4 and
 nfs_resop4 dispatch unions from {{RFC7863}} with the new ops.
@@ -3069,6 +3067,20 @@ assigned by {{I-D.haynes-nfsv4-flexfiles-v2}}:
 * Operations 96-99: PROXY_REGISTRATION, PROXY_PROGRESS, PROXY_DONE,
   PROXY_CANCEL (Section 6).
 * proxy_stateid4, a new server-issued stateid type (Section 6.1).
+
+This document requests IANA to register one new bit in the
+"EXCHGID4_FLAG_*" flag space for the ExchangeID operation from
+{{Section 18.35.3 of RFC8881}}.  The requested value is `0x00200000`,
+outside the existing MASK_PNFS block (0x00070000) and clear of the bit
+{{I-D.haynes-nfsv4-flexfiles-v2}} requests; IANA MAY assign a
+different value at its discretion, in which case the numeric value in
+{{fig-exchgid-flag-use-proxy-server}} and its uses throughout this
+document are updated to match the assignment.
+
+ | Flag Name                      | Value      | RFC      | Reference                                          |
+ |---
+ | EXCHGID4_FLAG_USE_PROXY_SERVER | 0x00200000 | RFCTBD11 | {{fig-exchgid-flag-use-proxy-server}}, this doc    |
+{: #tbl_exchgid_flags_proxy title="EXCHGID4 Flag Assignment"}
 
 # Interaction with the Base Specification {#interaction}
 
