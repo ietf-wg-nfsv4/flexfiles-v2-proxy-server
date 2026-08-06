@@ -320,7 +320,7 @@ Orchestration beyond a single proxy:
    protocol.
 
 Server-side copy as an alternative path:
-:  Integration with server-side copy ({{RFC7862}} Section 4)
+:  Integration with server-side copy ({{Section 4 of RFC7862}})
    as an alternative to proxy-server-driven moves for single-file
    moves within one namespace is adjacent work.  The two
    mechanisms are complementary (server-side copy is a
@@ -522,7 +522,7 @@ NFSv3 flow diagrams as implying on-wire redirection:
 
 -  Filehandle authority belongs to the proxy server.  The proxy
    server mints its own NFSv3 filehandles (opaque to the client per
-   {{RFC1813}} S3.3.2) and maintains an internal mapping from each
+   {{Section 3.3.2 of RFC1813}}) and maintains an internal mapping from each
    NFSv3 filehandle to the (metadata-server file, current layout)
    pair.  The NFSv3 filehandle bytes are not derived from and do
    not need to match the metadata-server-issued nfs_fh4.
@@ -538,7 +538,8 @@ NFSv3 flow diagrams as implying on-wire redirection:
    discovery contract exists between the metadata server and the
    NFSv3 client: the deployment operator directs NFSv3 clients at
    the proxy server via the normal MOUNT protocol
-   ({{RFC1813}} S5) and DNS/administrative means.  A metadata
+   ({{Section 5 of RFC1813}}) and DNS or administrative means.
+   A metadata
    server that decides to retire or migrate a proxy server MUST
    coordinate that change with the operator; there is no
    protocol path by which the metadata server can cause a mounted
@@ -586,12 +587,12 @@ A write flows:
    or `DATA_SYNC`, the proxy MUST NOT reply until every mirror
    in the target set has committed the range at (at least) the
    requested stability; if the back-end cannot provide that
-   stability, the proxy fails the WRITE per {{RFC1813}} S3.3.7
+   stability, the proxy fails the WRITE per {{Section 3.3.7 of RFC1813}}
    (returning `NFS3ERR_IO`) rather than replying success at a
    weaker stability.
 -  Proxy: for a successful WRITE, returns NFSv3 WRITE ok
    reporting the stability actually achieved (which MUST be
-   >= the requested stable_how; per {{RFC1813}} S3.3.7 a
+   >= the requested stable_how; per {{Section 3.3.7 of RFC1813}} a
    server may return a stronger stability than requested but
    MUST NOT return a weaker one).  For an `UNSTABLE` client
    request the proxy MAY reply as soon as it has accepted the
@@ -1034,7 +1035,7 @@ session establishment to identify a proxy-server session
 {: #fig-exchgid-flag-use-proxy-server title="Proxy-server EXCHGID4 flag"}
 
 The value is assigned outside the existing MASK_PNFS block
-(0x00070000 in {{RFC8881}} S18.35.3) and adjacent to
+(0x00070000 in {{Section 18.35.3 of RFC8881}}) and adjacent to
 `EXCHGID4_FLAG_USE_ERASURE_DS` (`0x00100000`,
 {{I-D.haynes-nfsv4-flexfiles-v2}}) among the family's flags,
 so that the erasure-data-server bit and the proxy-server bit do not
@@ -1081,7 +1082,7 @@ point.
 This document introduces `proxy_stateid4`, a new server-issued
 stateid type used as the canonical handle for an in-flight
 proxy migration.  The wire shape reuses the standard NFSv4
-`stateid4` from {{RFC8881}} S3.3.12; no new XDR type is added:
+`stateid4` from {{Section 3.3.12 of RFC8881}}; no new XDR type is added:
 
 ~~~ xdr
 /// typedef stateid4  proxy_stateid4;
@@ -1162,7 +1163,7 @@ step 6 in {{sec-PROXY_DONE}}, which PROXY_CANCEL imports).  The
 seqid slot does not otherwise bump over the assignment's lifetime;
 the exact-equality rule reduces to "the caller presents the
 minted value unchanged" and is retained for consistency with the
-general NFSv4 stateid shape in {{RFC8881}} S8.2.4 and for a
+general NFSv4 stateid shape in {{Section 8.2.4 of RFC8881}} and for a
 common failure-mode signal when a proxy server confuses one
 assignment's stateid with another's.
 
@@ -1244,24 +1245,24 @@ receives a PROXY_REGISTRATION with any bit of pra_flags set
 MUST reject it with NFS4ERR_INVAL.
 
 The "reject, don't ignore" rule follows the NFSv4 extension
-model in {{RFC8178}}.  Section 8 of {{RFC8178}} specifies
+model in {{RFC8178}}.  {{Section 8 of RFC8178}} specifies
 that when a flag bit is used that is not known in the
-specified minor version, NFS4ERR_INVAL is returned; Section
-4.4.3 of {{RFC8178}} then explains that this same error is
-how a requester determines whether the responder understands
-the bit.  Silently ignoring an unknown bit would break that
-discovery contract: a proxy server that sets a future capability bit
-against a metadata server that pre-dates the bit could not tell whether
-the metadata server honored the capability or simply dropped it.
+specified minor version, NFS4ERR_INVAL is returned; {{Section 4.4.3 of
+RFC8178}} then explains that this same error is how a requester
+determines whether the responder understands the bit.  Silently
+ignoring an unknown bit would break that discovery contract: a proxy
+server that sets a future capability bit against a metadata server
+that pre-dates the bit could not tell whether the metadata server
+honored the capability or simply dropped it.
 
 A future revision of this specification (or a successor
 document that updates it) MAY define new bit values in
-pra_flags, following the extension rules of Section 4.2 of
-{{RFC8178}}.  A proxy server that understands a newly defined bit MAY
+pra_flags, following the extension rules of {{Section 4.2 of
+RFC8178}}.  A proxy server that understands a newly defined bit MAY
 set it when registering with a metadata server that supports it; on
 NFS4ERR_INVAL the proxy server MAY retry with the bit cleared,
-treating the response as the {{RFC8178}} Section 4.4.3
-signal that the metadata server does not recognize the bit.
+treating the response as the {{Section 4.4.3 of RFC8178}} signal that
+the metadata server does not recognize the bit.
 
 The pra_registration_id field carries the registration
 identity the proxy server presents on this call.  On a
@@ -1322,7 +1323,7 @@ metadata server and the recipient proxy server (a random or
 otherwise cryptographically unpredictable 64-bit value), so
 that a passive observer cannot guess a valid ID to present.
 Replay protection follows from the session's replay cache
-(Section 2.10.6 of {{RFC8881}}); replay of a captured
+({{Section 2.10.6 of RFC8881}}); replay of a captured
 PROXY_REGISTRATION beyond the replay-cache window MUST fail
 because a matched ID under a differently authenticated
 principal is rejected as above.  The value 0 is reserved as
@@ -1350,7 +1351,7 @@ PROXY_REGISTRATION on a session whose owning client did not
 present `EXCHGID4_FLAG_USE_PROXY_SERVER` MUST reject it with
 NFS4ERR_PERM.  The proxy server MUST NOT present
 `EXCHGID4_FLAG_USE_NON_PNFS` on the same EXCHANGE_ID: it is a
-pNFS client for the purposes of {{RFC8881}} S13.1 (it drives
+pNFS client for the purposes of {{Section 13.1 of RFC8881}} (it drives
 LAYOUTGET as part of the CLAIM_PROXY pickup sequence,
 {{sec-claim-proxy}}), distinguished from ordinary pNFS clients
 only by its proxy-server role.
@@ -1462,7 +1463,7 @@ fore-channel of its session to the metadata server for two purposes:
    `proxy_assignment4` describing one migration or repair the
    metadata server wants this proxy server to drive.
 
-Per {{RFC8178}} S4.4.3, `ppa_flags` is a reserved-for-future-use
+Per {{Section 4.4.3 of RFC8178}}, `ppa_flags` is a reserved-for-future-use
 flag word; the metadata server MUST reject any non-zero bit with
 `NFS4ERR_INVAL`.  The slot allows future revisions to add
 proxy-server-side appetite signaling (e.g., "do not give me more
@@ -1474,31 +1475,29 @@ PROXY_PROGRESS reply MUST NOT carry more than
 `PROXY_MAX_ASSIGNMENTS_PER_OP` (64) assignments.  The
 metadata server MUST additionally verify, before constructing
 the reply, that the encoded PROXY_PROGRESS4resok fits within
-the session's negotiated `ca_maxresponsesize` (Section 18.36
-of {{RFC8881}}); if the next assignment on its queue would
-overflow the response, the metadata server MUST short-return
-(omit that assignment and any that follow it from this reply)
-and MUST include the omitted assignments in a subsequent
-PROXY_PROGRESS reply.  Short-return is not itself an error;
-the delivery rules above ensure the omitted assignments are
-re-offered on the next call.  A proxy server that does not
-want new work simply ignores the assignments past its
-in-flight cap; the metadata server does not retract
-assignments once acknowledged (see below), other than via an
-explicit `PROXY_OP_CANCEL_PRIOR` assignment in a later
-PROXY_PROGRESS reply.  Each assignment names a single file
-(`pa_file_fh`), the source and target data servers the
-migration moves data between (`pa_source_deviceid` /
-`pa_target_deviceid`), and a kind-specific opaque descriptor
-(`pa_descriptor<PROXY_MAX_DESCRIPTOR_BYTES>`, bounded at 4096
-bytes) for future extensions (for example, a precomputed
-source-layout descriptor so the proxy server can dial source
-data servers without a second LAYOUTGET).  The `pa_stateid` field carries the
-`proxy_stateid4` ({{sec-proxy-stateid}}) the metadata server has minted
-for this migration; the proxy server presents it in the
-`OPEN(CLAIM_PROXY)` that binds it to the file
-({{sec-claim-proxy}}) and references it as the handle in the
-eventual PROXY_DONE / PROXY_CANCEL.
+the session's negotiated `ca_maxresponsesize` ({{Section 18.36 of
+RFC8881}}); if the next assignment on its queue would overflow the
+response, the metadata server MUST short-return (omit that assignment
+and any that follow it from this reply) and MUST include the omitted
+assignments in a subsequent PROXY_PROGRESS reply.  Short-return is not
+itself an error; the delivery rules above ensure the omitted
+assignments are re-offered on the next call.  A proxy server that does
+not want new work simply ignores the assignments past its in-flight
+cap; the metadata server does not retract assignments once
+acknowledged (see below), other than via an explicit
+`PROXY_OP_CANCEL_PRIOR` assignment in a later PROXY_PROGRESS reply.
+Each assignment names a single file (`pa_file_fh`), the source and
+target data servers the migration moves data between
+(`pa_source_deviceid` / `pa_target_deviceid`), and a kind-specific
+opaque descriptor (`pa_descriptor<PROXY_MAX_DESCRIPTOR_BYTES>`,
+bounded at 4096 bytes) for future extensions (for example, a
+precomputed source-layout descriptor so the proxy server can dial
+source data servers without a second LAYOUTGET).  The `pa_stateid`
+field carries the `proxy_stateid4` ({{sec-proxy-stateid}}) the
+metadata server has minted for this migration; the proxy server
+presents it in the `OPEN(CLAIM_PROXY)` that binds it to the file
+({{sec-claim-proxy}}) and references it as the handle in the eventual
+PROXY_DONE / PROXY_CANCEL.
 
 The `pa_kind` discriminates the work type:
 
@@ -1555,14 +1554,14 @@ duplicate work or spurious state: the proxy server ignores any
 re-delivery of a `proxy_stateid` it has already opened.
 
 `pa_file_fh` is an `nfs_fh4` minted by the metadata server and presented to
-the proxy server for use against the same metadata server.  Per {{RFC8881}} Section
-4.2.3, NFSv4 filehandles are server-private opaque tokens; the
-receiving server treats the byte string as opaque, validates it
-only by attempting the lookup, and returns NFS4ERR_STALE or
-NFS4ERR_BADHANDLE if the bytes do not resolve.  The proxy server MUST NOT
-inspect, mutate, or shape-check `pa_file_fh`; it forwards the
-filehandle verbatim in PUTFH on the same metadata server that issued it,
-and the existing PUTFH semantics apply unchanged.
+the proxy server for use against the same metadata server.  Per
+{{Section 4.2.3 of RFC8881}}, NFSv4 filehandles are server-private
+opaque tokens; the receiving server treats the byte string as opaque,
+validates it only by attempting the lookup, and returns NFS4ERR_STALE
+or NFS4ERR_BADHANDLE if the bytes do not resolve.  The proxy server
+MUST NOT inspect, mutate, or shape-check `pa_file_fh`; it forwards the
+filehandle verbatim in PUTFH on the same metadata server that issued
+it, and the existing PUTFH semantics apply unchanged.
 
 The `ppr_lease_remaining_sec` field is the metadata server's
 acknowledgment of this PROXY_PROGRESS as a registration lease
@@ -1677,7 +1676,7 @@ completes (or fails):
 SEQUENCE PUTFH(pa_file_fh) LAYOUTRETURN(L3_stateid) PROXY_DONE(pd_stateid, status)
 ```
 
-LAYOUTRETURN runs FIRST per {{RFC8881}} S18.51, releasing the
+LAYOUTRETURN runs FIRST per {{Section 18.51 of RFC8881}}, releasing the
 proxy server's reference to the L3 layout cleanly via the standard
 mechanism.  PROXY_DONE then operates on the in-flight
 migration record keyed by the proxy_stateid; the
@@ -1799,7 +1798,7 @@ Compound shape:
 SEQUENCE PUTFH(pa_file_fh) LAYOUTRETURN(L3_stateid) PROXY_CANCEL(pc_stateid)
 ```
 
-LAYOUTRETURN runs first (standard {{RFC8881}} S18.51 release
+LAYOUTRETURN runs first (standard {{Section 18.51 of RFC8881}} release
 of the L3 layout); PROXY_CANCEL then operates on the
 in-flight migration record only.
 
@@ -1838,7 +1837,7 @@ subsequent LAYOUTGETs:
     to return within the layout-recall grace period, the
     metadata server MUST revoke the client's L3 layout
     stateid via the ordinary NFSv4.1 layout revocation
-    mechanism (Section 12.5.5 of {{RFC8881}}).
+    mechanism ({{Section 12.5.5 of RFC8881}}).
 
 3.  Fence the proxy server's backend stateids.  In every
     coupling mode, the metadata server MUST fence any
@@ -2490,7 +2489,7 @@ remaining destinations, and clients are unaffected.
 # Metadata Server Crash Recovery {#sec-mds-recovery}
 
 Clients and the proxy server detect metadata server session loss and enter RECLAIM
-per {{RFC8881}} S8.4 / S10.2.1.  The proxy server's recovery extends
+per {{Section 8.4 of RFC8881}} / S10.2.1.  The proxy server's recovery extends
 the standard NFSv4.1 client-recovery sequence with one
 proxy-specific step -- re-registration -- and one explicit
 safety rule: if the proxy server cannot reclaim a layout for a
@@ -2561,8 +2560,8 @@ following steps in order:
 
 4. Per-file layout reclaim, for each matched assignment:
    `OPEN_RECLAIM(CLAIM_PREVIOUS, pa_file_fh)` per
-   {{RFC8881}} S9.11.1, followed by
-   `LAYOUTGET(reclaim=true)` per {{RFC8881}} S18.43.3 with
+   {{Section 9.11.1 of RFC8881}}, followed by
+   `LAYOUTGET(reclaim=true)` per {{Section 18.43.3 of RFC8881}} with
    the proxy server's retained layout stateid as the reclaim key.  On
    success the metadata server returns a fresh layout stateid for the
    resumed migration and the proxy server continues from where it
@@ -2592,14 +2591,14 @@ invariant of {{sec-multi-ps-fanout}}.
 
 The sidecar match in step 3 is best-effort across a metadata server
 reboot.  `deviceid4` is server-scoped and MAY change across a
-restart per {{RFC8881}} S3.3.7; a target deviceid the metadata server
-reassigns on restart will not match the proxy server's retained sidecar
-entry, the proxy server will not recognize the re-delivery as the same
-migration, and the affected sidecar entries are dropped per
-step 5.  The autopilot re-drives the work as a fresh
-assignment.  Implementations that preserve target deviceids
-across restart will resume mid-flight; those that do not will
-re-drive from scratch -- both are conformant.
+restart per {{Section 3.3.7 of RFC8881}}; a target deviceid the
+metadata server reassigns on restart will not match the proxy server's
+retained sidecar entry, the proxy server will not recognize the
+re-delivery as the same migration, and the affected sidecar entries
+are dropped per step 5.  The autopilot re-drives the work as a fresh
+assignment.  Implementations that preserve target deviceids across
+restart will resume mid-flight; those that do not will re-drive from
+scratch -- both are conformant.
 
 ### Retention Requirement
 
@@ -2877,7 +2876,7 @@ What the protocol cannot defend against:
    production use.
 
 Future work (noted as an Open Question below): RPCSEC_GSSv3
-structured privilege assertion per {{RFC7861}} Section 2.5.2
+structured privilege assertion per {{Section 2.5.2 of RFC7861}}
 is the natural strong-authentication mechanism for
 proxy-server-forwarded credentials.  This revision does not require
 GSSv3 because the broader NFSv4 deployment base does not yet
@@ -3211,14 +3210,13 @@ Richer capability advertising:
 RPCSEC_GSSv3 for translating-proxy credential forwarding:
 :  Credential forwarding under AUTH_SYS is weak (uid
    spoofable, no integrity protection).  RPCSEC_GSSv3
-   structured privilege assertion ({{RFC7861}}
-   Section 2.5.2) is the natural strong-authentication
-   mechanism, but its deployment base in the NFSv4
-   community is narrow.  Should the draft REQUIRE GSSv3 for
-   translating proxies, RECOMMEND it, or leave it as
-   implementation-optional?  The answer likely depends on
-   how aggressively the working group wants to push GSSv3 adoption as
-   a side effect of standardizing this mechanism.
+   structured privilege assertion ({{Section 2.5.2 of RFC7861}}) is
+   the natural strong-authentication mechanism, but its deployment
+   base in the NFSv4 community is narrow.  Should the draft REQUIRE
+   GSSv3 for translating proxies, RECOMMEND it, or leave it as
+   implementation-optional?  The answer likely depends on how
+   aggressively the working group wants to push GSSv3 adoption as a
+   side effect of standardizing this mechanism.
 
 DEVICEID_REGISTRATION generalization:
 :  PROXY_REGISTRATION in this document is a proxy-specific
@@ -3290,7 +3288,7 @@ Out of Scope before submission.
 -  Automated proxy selection with load balancing.
 -  Proxy-failure predicate (when should the metadata server pre-emptively
    replace a slow proxy?).
--  Integration with server-side copy ({{RFC7862}} Section 4)
+-  Integration with server-side copy ({{Section 4 of RFC7862}})
    as an alternative for single-file moves within one
    namespace.
 -  Delta-journaling during a move for online moves without
