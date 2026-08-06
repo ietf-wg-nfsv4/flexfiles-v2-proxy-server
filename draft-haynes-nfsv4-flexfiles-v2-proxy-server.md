@@ -1396,9 +1396,6 @@ records are abandoned and the affected layouts revert to the
 pre-migration state.  The revoked proxy server, on its next
 PROXY_PROGRESS, sees NFS4ERR_STALE_CLIENTID and may either
 re-register (if the deployment policy allows) or shut down.
-A future revision MAY define a dedicated PROXY_REVOKE
-operation if operational experience shows lease revocation
-through silence is insufficient.
 
 ## Operation 97: PROXY_PROGRESS - Heartbeat and Receive Work Assignments {#sec-PROXY_PROGRESS}
 
