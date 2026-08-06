@@ -126,7 +126,7 @@ primitives.
 The following terms are used with meanings defined in
 {{I-D.haynes-nfsv4-flexfiles-v2}}:
 
-- data server (DS), metadata server (MDS)
+- data server, metadata server
 - layout, mirror, mirror set, shard, stripe
 - chunk (the unit of client-driven encoded write/read), and the
   chunk state machine (PENDING / FINALIZED / COMMITTED)
@@ -201,7 +201,7 @@ Autopilot:
    disambiguate metadata-server-initiated actions from
    proxy-server-initiated ones.
 
-## Relation to Sibling FFv2 Documents {#sec-relation-to-parent}
+## Relation to Sibling Flexible File Version 2 Documents {#sec-relation-to-parent}
 
 {{I-D.haynes-nfsv4-flexfiles-v2}} defines CB_CHUNK_REPAIR and
 the per-chunk repair model.  This document is the companion
@@ -213,7 +213,7 @@ time; coexistence rules are in {{interaction}}.
 
 This section draws the boundary between the wire-level
 mechanism defined here and the much larger space of useful
-behaviours a proxy implementation might support.  Drawing
+behaviors a proxy implementation might support.  Drawing
 the boundary tightly keeps the protocol small enough to
 specify and implement in a single revision; everything
 beyond the boundary is either future work or implementation
@@ -293,7 +293,7 @@ into three groups: features whose absence was an explicit
 design decision (delta journaling, partial-range moves),
 orchestration that belongs to a layer above a single
 proxy (multi-proxy pipelines, automated load balancing),
-and proxy-internal behaviour that does not surface on the
+and proxy-internal behavior that does not surface on the
 wire and therefore needs no standardisation.  Nothing on
 this list is precluded by the current design; each is a
 reasonable future extension.
@@ -341,9 +341,9 @@ Proxy-internal features that do not surface on the wire:
 :  A proxy MAY implement content-integrity and
    error-correction layers, encryption and compression
    pass-through, log-structured write staging, and
-   sector-alignment normalisation.  These are useful
+   sector-alignment normalization.  These are useful
    motivating scenarios for the move/repair vocabulary but
-   do not require new protocol surface beyond what the
+   do not require new protocol machinery beyond what the
    PROXY_PROGRESS / PROXY_DONE / PROXY_CANCEL fore-channel
    set already provides, and so they are left to
    implementation rather than standardised here.
@@ -434,7 +434,7 @@ the proxy drives reconstruction from whatever surviving shards
 remain.  If fewer than k shards survive across the mirror set,
 the proxy reports terminal failure via PROXY_DONE with
 `pd_status` set to `NFS4ERR_PAYLOAD_LOST`, matching the
-per-chunk repair semantics in the Repair Client Selection
+per-chunk repair semantics in the Selecting the Repair Actor
 section of {{I-D.haynes-nfsv4-flexfiles-v2}}.
 
 ## TLS Coverage Transition
@@ -494,7 +494,7 @@ file itself is not changing state.  What changes is the layout
 the metadata server hands to an encoding-ignorant client: that client gets a
 single-data server layout naming a translating proxy server, with a coding_type
 the client does support (typically FFV2_ENCODING_MIRRORED, or
-for NFSv3 clients just a flat NFSv3 data surface).  The proxy
+for NFSv3 clients just a flat NFSv3 data path).  The proxy
 encodes and decodes on the fly against the real data servers; the
 client sees a flat file.
 
@@ -504,15 +504,15 @@ proxy by encoding-ignorant clients (with a proxy layout)
 simultaneously.  The metadata server issues a different layout per
 request; only the encoding-ignorant case routes through the proxy server.
 
-For NFSv4-family clients (NFSv4.0, NFSv4.1, or NFSv4.2 encoding-
-ignorant), the routing arrangement is on-wire: the metadata server
+For NFSv4-family clients (NFSv4.0, NFSv4.1, or NFSv4.2
+encoding-ignorant), the routing arrangement is on-wire: the metadata server
 returns a proxy-fronted layout in LAYOUTGET, and the client's
 existing mount continues to work; the metadata server, not the
 client, decides that this client's next layout points at the proxy
 server.
 
 NFSv3 client routing, by contrast, is NOT dynamic on the wire.  An
-NFSv3 client cannot receive a pNFS layout, cannot observe the FFv2
+NFSv3 client cannot receive a pNFS layout, cannot observe the flexible file v2 layout
 proxy indication, and has no protocol path by which the metadata
 server can redirect an already-mounted NFSv3 client through the
 proxy server.  NFSv3 routing is therefore an out-of-band front-door
@@ -561,7 +561,7 @@ its client-facing side it speaks the protocol the
 encoding-ignorant client can speak: for an NFSv3 {{RFC1813}}
 client that is an NFSv3 server that re-exports the metadata server's
 namespace; for a legacy NFSv4.2 client that understands only
-some encodings, it is an NFSv4.2 data-server surface presenting
+some encodings, it is an NFSv4.2 data-server interface presenting
 FFV2_ENCODING_MIRRORED (or an equivalent encoding the client
 supports).  On its metadata-server-facing side it is an NFSv4.2
 client to the metadata server plus whatever data server protocol the metadata server's real
@@ -596,7 +596,7 @@ A write flows:
 -  Proxy: for a successful WRITE, returns NFSv3 WRITE ok
    reporting the stability actually achieved (which MUST be
    >= the requested stable_how; per {{RFC1813}} S3.3.7 a
-   server may return a *stronger* stability than requested but
+   server may return a stronger stability than requested but
    MUST NOT return a weaker one).  For an `UNSTABLE` client
    request the proxy MAY reply as soon as it has accepted the
    data; a subsequent client `COMMIT` drives the range to
@@ -614,7 +614,7 @@ On the client <-> proxy server leg, the client uses the stateids
 the metadata server issued to it: the open, lock, and layout
 stateids for the proxy layout it received from LAYOUTGET.  The
 proxy server is that leg's data server for I/O purposes, so the
-stateids the client carries are exactly what any FFv2 client
+stateids the client carries are exactly what any flexible file v2 layout client
 carries against any data server; the client does not present
 (and does not know about) any proxy-side stateid.
 
@@ -1001,8 +1001,8 @@ fore-channel of the proxy server -> metadata server session defined in
 once at session setup and on renewal.  PROXY_PROGRESS (97) is
 issued by the proxy server as a heartbeat-and-poll: the proxy server
 renews its registration lease and requests new work; the metadata
-server replies inline with zero or more new work assignments.  Per-
-migration terminal reporting is not carried on PROXY_PROGRESS.
+server replies inline with zero or more new work assignments.
+Per-migration terminal reporting is not carried on PROXY_PROGRESS.
 PROXY_DONE (98) commits or rolls back an individual migration when
 the proxy server finishes it; PROXY_CANCEL (99) lets the proxy server
 abort early.  None of these operations is sent by pNFS clients.
@@ -1020,10 +1020,10 @@ abort early.  None of these operations is sent by pNFS clients.
 Opcodes 96 through 99 extend the control-plane opcode range opened
 by {{I-D.haynes-nfsv4-flexfiles-v2}}: that document assigns 89-91 to
 metadata-server-to-data-server operations (TRUST_STATEID through
-BULK_REVOKE_STATEID) and 92-95 to the MDS-side escrow control-plane
+BULK_REVOKE_STATEID) and 92-95 to the metadata-server-side escrow control-plane
 operations (CHUNK_ESCROW_INSTALL through CHUNK_ESCROW_TAKEOVER).
-Opcodes 96-99 continue the family ledger for proxy-server-to-
-metadata-server operations; these values MUST NOT overlap any value
+Opcodes 96-99 continue the family ledger for
+proxy-server-to-metadata-server operations; these values MUST NOT overlap any value
 allocated by {{I-D.haynes-nfsv4-flexfiles-v2}} or by any other
 document in the flexfiles-v2 family.
 
@@ -1039,8 +1039,8 @@ session establishment to identify a proxy-server session
 The value is assigned outside the existing MASK_PNFS block
 (0x00070000 in {{RFC8881}} S18.35.3) and adjacent to
 `EXCHGID4_FLAG_USE_ERASURE_DS` (`0x00100000`,
-{{I-D.haynes-nfsv4-flexfiles-v2}}) in the family's flag surface,
-so that the erasure-DS bit and the proxy-server bit do not
+{{I-D.haynes-nfsv4-flexfiles-v2}}) among the family's flags,
+so that the erasure-data-server bit and the proxy-server bit do not
 collide.  Values are subject to IANA assignment on publication;
 should IANA assign a different value, the numeric constant here
 and its uses throughout this document are updated to match.
@@ -1367,8 +1367,8 @@ metadata server MUST reject an unauthorized PROXY_REGISTRATION with
 NFS4ERR_PERM.
 
 The authorization MUST be applied to a cryptographically
-authenticated identity, per the metadata server <-> proxy server transport-
-security requirements in {{sec-credential-forwarding}}.
+authenticated identity, per the metadata server <-> proxy server
+transport-security requirements in {{sec-credential-forwarding}}.
 AUTH_SYS is never sufficient for PROXY_REGISTRATION; the
 metadata server MUST reject it.
 
@@ -1457,10 +1457,10 @@ through silence is insufficient.
 A registered proxy server calls PROXY_PROGRESS on the
 fore-channel of its session to the metadata server for two purposes:
 
-1. **Heartbeat**: extend the proxy server's registration lease.  The metadata server
+1. Heartbeat: extend the proxy server's registration lease.  The metadata server
    responds with `ppr_lease_remaining_sec` so the proxy server can size
    its next poll interval.
-2. **Receive work assignments**: pick up zero or more units of
+2. Receive work assignments: pick up zero or more units of
    work the metadata server has queued for this proxy server.  Each assignment is a
    `proxy_assignment4` describing one migration or repair the
    metadata server wants this proxy server to drive.
@@ -1828,13 +1828,13 @@ paths MUST therefore apply the same abort fence before the
 metadata server discards L2/L3 and before L1 is reissued to
 subsequent LAYOUTGETs:
 
-1.  **Stop new L3 issuance.**  The metadata server MUST
+1.  Stop new L3 issuance.  The metadata server MUST
     refuse any further LAYOUTGET that would return L3 for
     this file; subsequent client LAYOUTGETs receive L1 (or
     NFS4ERR_LAYOUTUNAVAILABLE if L1 recall is still in
     flight).
 
-2.  **Recall or revoke client-held L3.**  For every client to
+2.  Recall or revoke client-held L3.  For every client to
     which L3 was issued, the metadata server MUST issue
     CB_LAYOUTRECALL(L3) and MUST retain L3 bookkeeping until
     the resulting LAYOUTRETURNs arrive.  If a client fails
@@ -1843,7 +1843,7 @@ subsequent LAYOUTGETs:
     stateid via the ordinary NFSv4.1 layout revocation
     mechanism (Section 12.5.5 of {{RFC8881}}).
 
-3.  **Fence the proxy server's backend stateids.**  In every
+3.  Fence the proxy server's backend stateids.  In every
     coupling mode, the metadata server MUST fence any
     stateid the proxy server was using against the source or
     target data servers, so that a delayed write from the
@@ -1857,7 +1857,7 @@ subsequent LAYOUTGETs:
     NFSv4.1 stateids at the source and target data servers
     via the data-server-native mechanism.
 
-4.  **Drain in-flight I/O.**  After steps 1-3, the metadata
+4.  Drain in-flight I/O.  After steps 1-3, the metadata
     server MUST wait for any in-flight compound the proxy
     server has already issued against a fenced data server
     to fail (either at the data server, which rejects with
@@ -1868,7 +1868,7 @@ subsequent LAYOUTGETs:
     the data servers have had at least one lease period to
     observe the fence.
 
-5.  **Retire L2/L3 bookkeeping.**  Only after steps 1-4 have
+5.  Retire L2/L3 bookkeeping.  Only after steps 1-4 have
     each completed MAY the metadata server discard the L2
     and L3 layouts, drop G (or leave it for administrative
     cleanup), retire the proxy operation, invalidate the
@@ -2022,7 +2022,7 @@ On a LAYOUTGET, the metadata server chooses one of three outcomes:
 
 -  A direct-data server layout, when no proxy operation is in flight
    for the file and the client's coding-type support set
-   includes the file's coding.  This is the unchanged FFv2
+   includes the file's coding.  This is the unchanged flexible file v2 layout
    path.
 
 -  A single-data server layout naming the proxy server, when a MOVE or REPAIR
@@ -2033,7 +2033,7 @@ On a LAYOUTGET, the metadata server chooses one of three outcomes:
    on its `ffs_ds_flags` (see
    {{I-D.haynes-nfsv4-flexfiles-v2}}), marking the entry as a
    proxy server rather than a direct data server.  The client
-   uses this layout as it would any FFv2 layout, sending CHUNK
+   uses this layout as it would any flexible file v2 layout, sending CHUNK
    ops to the named data server; the proxy server internally
    dispatches reads and writes to the source and destination data
    servers.
@@ -2043,11 +2043,11 @@ On a LAYOUTGET, the metadata server chooses one of three outcomes:
    coding-type support set does not include the file's coding
    and no registered proxy server can translate.
 
-A client that supports FFv2 -- which is the precondition for
+A client that supports the flexible file v2 layout -- which is the precondition for
 any of this -- needs no proxy-specific I/O code: the proxy case
 arrives as a single-data server layout and drives the same CHUNK
-ops as any other FFv2 layout.  The `FFV2_DS_FLAGS_PROXY` bit on
-the DS entry is available for clients that choose to distinguish
+ops as any other flexible file v2 layout.  The `FFV2_DS_FLAGS_PROXY` bit on
+the data server entry is available for clients that choose to distinguish
 proxy-fronted I/O (for telemetry, alternative retry policy, or
 avoidance under application preference); a client that ignores
 the bit interoperates unchanged.
@@ -2227,7 +2227,7 @@ approach -- whole-layout swap -- that captures the simplest
 case (single mirror replacement under a Client Side Mirroring
 encoding).  A metadata server implementation that supports more general
 migrations (e.g., a single shard add to an erasure-coded
-file, or a partial mirror-set rotation under FFv2 RS) MAY
+file, or a partial mirror-set rotation under flexible file v2 layout RS) MAY
 record migration state as per-instance deltas on the file's
 existing layout records, rather than as a complete L2/L3 pair.
 
@@ -2278,8 +2278,8 @@ proxy_stateid tables across the lifecycle described above.
 # Client Behavior
 
 During a proxy operation the layout the metadata server hands a client is
-a single-data server FFv2 layout naming the proxy server.  The client treats it
-as any other FFv2 layout, sending CHUNK ops to the named data server
+a single data server flexible file v2 layout naming the proxy server.  The client treats it
+as any other flexible file v2 layout, sending CHUNK ops to the named data server
 under its existing layout stateid.  Nothing in the client's
 path distinguishes "the data server is a proxy server" from "the data server is a real
 data server"; that distinction lives entirely on the metadata server
@@ -2325,7 +2325,7 @@ recalling L3 from those L3-holding clients), and DONE
 (clients are on the post-move L2 layout, source data servers
 retired).  The state is metadata-server-local:
 clients never observe these state names directly, but a
-client's behaviour is shaped by which layout the metadata server is
+client's behavior is shaped by which layout the metadata server is
 currently handing out.  A given file spends most of its
 lifetime in READY; a proxy operation is a relatively short
 excursion through the other four states, after which the
@@ -2504,50 +2504,53 @@ rather than continuing with stale state.
 The proxy server, after detecting metadata server session loss, performs the
 following steps in order:
 
-1. **EXCHANGE_ID + CREATE_SESSION** with the proxy server's prior
+1. EXCHANGE_ID + CREATE_SESSION with the proxy server's prior
    `client_owner4`.  Standard NFSv4.1 client recovery; the
    proxy server's `clientid4` is restored when the metadata server recognizes the
    prior `client_owner4`.
 
-2. **PROXY_REGISTRATION** to re-establish the proxy-server
+2. PROXY_REGISTRATION to re-establish the proxy-server
    role on the new session.  The proxy server attempts
    renewal first, presenting its prior
-   `prr_registration_id`, and inspects the result:
+   `prr_registration_id`, and inspects the result.
 
-   -  **Renewal accepted** (`NFS4ERR_STALE_CLIENTID` NOT
-      returned): the metadata server retained the
-      registration across its own restart; the proxy server
-      keeps the same `prr_registration_id` and the
-      migration records tied to it remain in force.
-      Proceed to step 3.
+   Renewal accepted (`NFS4ERR_STALE_CLIENTID` NOT returned):
 
-   -  **`NFS4ERR_STALE_CLIENTID`**: the metadata server
-      lost its registration table across the restart (see
-      the third bullet at {{sec-PROXY_REGISTRATION}}).  The
-      proxy server MUST retry PROXY_REGISTRATION with
-      `pra_registration_id = PROXY_REGISTRATION_ID_NEW` (0)
-      to obtain a fresh registration.  The fresh
-      `prr_registration_id` returned by the metadata server
-      is unrelated to the prior one and carries no prior
-      migration ownership; the metadata server's assignment
-      queue for this proxy server in step 3 will
-      necessarily be empty, and every retained sidecar
-      entry falls through to step 5 to be dropped per
-      {{sec-lost-migration-records}}.
+   : the metadata server retained the registration across its
+     own restart; the proxy server keeps the same
+     `prr_registration_id` and the migration records tied to
+     it remain in force.  Proceed to step 3.
 
-   -  **`NFS4ERR_PERM`**: another party is currently
-      registered under this `prr_registration_id` with a
-      different authenticated identity; the proxy server
-      MUST NOT retry with the prior ID.  This is a
-      deployment or credentialing fault, not a routine
-      recovery outcome, and is out of scope for the
-      autopilot recovery path.
+   `NFS4ERR_STALE_CLIENTID`:
+
+   : the metadata server lost its registration table across
+     the restart (see the third bullet at
+     {{sec-PROXY_REGISTRATION}}).  The proxy server MUST
+     retry PROXY_REGISTRATION with
+     `pra_registration_id = PROXY_REGISTRATION_ID_NEW` (0)
+     to obtain a fresh registration.  The fresh
+     `prr_registration_id` returned by the metadata server
+     is unrelated to the prior one and carries no prior
+     migration ownership; the metadata server's assignment
+     queue for this proxy server in step 3 will necessarily
+     be empty, and every retained sidecar entry falls
+     through to step 5 to be dropped per
+     {{sec-lost-migration-records}}.
+
+   `NFS4ERR_PERM`:
+
+   : another party is currently registered under this
+     `prr_registration_id` with a different authenticated
+     identity; the proxy server MUST NOT retry with the
+     prior ID.  This is a deployment or credentialing fault,
+     not a routine recovery outcome, and is out of scope for
+     the autopilot recovery path.
 
    Until PROXY_REGISTRATION completes, the metadata server
    treats the client as an ordinary NFSv4 client and MUST
    NOT deliver proxy assignments to it.
 
-3. **PROXY_PROGRESS** to pull the assignment queue.  If the
+3. PROXY_PROGRESS to pull the assignment queue.  If the
    metadata server has retained any in-flight migrations owned by this
    proxy server, it delivers them in the reply -- each as a fresh
    `proxy_assignment4` carrying a fresh `proxy_stateid` (the
@@ -2558,7 +2561,7 @@ following steps in order:
    pa_target_deviceid)`.  Matched assignments proceed to step 4;
    unmatched assignments are handled as fresh assignments.
 
-4. **Per-file layout reclaim**, for each matched assignment:
+4. Per-file layout reclaim, for each matched assignment:
    `OPEN_RECLAIM(CLAIM_PREVIOUS, pa_file_fh)` per
    {{RFC8881}} S9.11.1, followed by
    `LAYOUTGET(reclaim=true)` per {{RFC8881}} S18.43.3 with
@@ -2573,14 +2576,14 @@ following steps in order:
    retained sidecar entry, and halts any pending I/O for
    the file.
 
-5. **Sidecar entries the metadata server did not re-deliver.**  For any
+5. Sidecar entries the metadata server did not re-deliver.  For any
    migration the proxy server retained in its sidecar but the metadata server did
    not include in step 3, the proxy server MUST drop that migration:
    discard the sidecar entry and halt any pending I/O for
    the file.  No signal to the metadata server is needed -- the metadata server
    already has no record of this migration.
 
-6. **RECLAIM_COMPLETE** when all per-file reclaims and drops
+6. RECLAIM_COMPLETE when all per-file reclaims and drops
    are done.
 
 Dropped migrations rejoin the metadata server's normal assignment path:
@@ -2762,7 +2765,7 @@ the metadata server side of the same contract;
 service-identity-is-for-the-control-plane draws the line
 between the op paths where the proxy server uses its own credentials
 and the op paths where it does not; and the failure-mode
-rule specifies the correct refusal behaviour rather than
+rule specifies the correct refusal behavior rather than
 letting a silent fall-through become the escape hatch.
 
 Credential pass-through:
@@ -2836,11 +2839,11 @@ Deployment-level requirements:
 
 -  The metadata server <-> proxy server session MUST use RPCSEC_GSS {{RFC7861}} or
    RPC-over-TLS {{RFC9289}} with mutual authentication.
-   AUTH_SYS as the *session-authentication* flavor on the
+   AUTH_SYS as the session-authentication flavor on the
    metadata server <-> proxy server session is forbidden.  This
    is distinct from forwarded client credentials: an NFSv3
-   /AUTH_SYS client's credentials MAY ride *inside* a mutually-
-   authenticated (RPCSEC_GSS or RPC-over-TLS) session as the
+   /AUTH_SYS client's credentials MAY ride inside a
+   mutually-authenticated (RPCSEC_GSS or RPC-over-TLS) session as the
    per-operation credential of a proxy-forwarded compound (see
    the credential-forwarding rules above); what is forbidden is
    AUTH_SYS on the session itself.  Equivalently, AUTH_SYS is
@@ -3133,7 +3136,7 @@ architectural choices that affect
 the mechanism's shape (multiple concurrent proxies per file,
 transitive proxy, capability-scoped EXCHGID flag), and
 policy questions whose answers bind deployment choices more
-than wire behaviour (metadata server operation-state persistence,
+than wire behavior (metadata server operation-state persistence,
 RPCSEC_GSSv3 requirement level, DEVICEID_REGISTRATION
 generalization).  Each item below briefly states the
 question and the candidate resolutions; none of them block
