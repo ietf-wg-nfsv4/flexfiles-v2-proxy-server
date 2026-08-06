@@ -624,7 +624,7 @@ uses the layout stateid it acquired from its own
 `OPEN(CLAIM_PROXY)` + LAYOUTGET against `pa_file_fh` (see
 {{sec-claim-proxy}}).  That layout is the L3 composite covering
 both source and destination data servers, and its stateid
-governs every `CHUNK_READ` / `CHUNK_WRITE` / `CHUNK_FINALIZE` /
+governs every `CHUNK_READ`, `CHUNK_WRITE`, `CHUNK_FINALIZE`, and
 `CHUNK_COMMIT` the proxy issues on the back end.  The client's
 stateid is not relayed to the real data servers, and the
 `proxy_stateid4` -- which lives in the proxy server <-> metadata
@@ -860,7 +860,7 @@ whose capabilities match the operation and queues an
 assignment for that proxy server; the next PROXY_PROGRESS reply
 delivers the assignment in its `ppr_assignments<>` array.
 The proxy server picks the work up by issuing OPEN + LAYOUTGET on the
-assignment's `pa_file_fh`, drives the byte-shoveling phase
+assignment's `pa_file_fh`, drives the data-movement phase
 to completion, and reports terminal status by issuing
 LAYOUTRETURN + PROXY_DONE in a single fore-channel compound
 on the same session.  The metadata server may at any time retract an
@@ -1676,7 +1676,7 @@ from the pre-migration shape L1 to the post-migration shape
 L2); any other value directs the metadata server to roll back (keep L1,
 discard L2 and the proxy-server-only composite L3).
 
-The proxy server compounds PROXY_DONE after the byte-shoveling phase
+The proxy server compounds PROXY_DONE after the data-movement phase
 completes (or fails):
 
 ```
@@ -2174,16 +2174,17 @@ open-owner is an ordinary share-state operation.
 The proxy server then obtains the L3 composite layout with an ordinary
 LAYOUTGET; the metadata server serves L3 because the calling clientid
 holds an in-flight migration record for the file.  The L3
-layout stateid is a normal NFSv4 layout stateid, used for
-CHUNK / WRITE / READ I/O against the source and target data servers
-in the standard way.  It is distinct from `proxy_stateid4`
+layout stateid is a normal NFSv4 layout stateid.  It governs the
+`CHUNK_READ`, `CHUNK_WRITE`, `CHUNK_FINALIZE`, and `CHUNK_COMMIT`
+operations the proxy server issues against the source and target data
+servers, in the standard way.  It is distinct from `proxy_stateid4`
 ({{sec-proxy-stateid}}), which is a control-plane handle for
 the migration as a whole and is never presented to LAYOUTGET;
 the metadata server keys its in-flight migration record on the
 proxy_stateid.  Separating the two -- one for I/O on a
 layout, one for the migration -- keeps the migration record's
 lifetime independent of any LAYOUTGET / LAYOUTRETURN cycle
-the proxy server performs during the byte-shoveling phase.
+the proxy server performs during the data-movement phase.
 
 ## Drain interaction
 
