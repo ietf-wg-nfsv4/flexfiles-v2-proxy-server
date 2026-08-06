@@ -82,7 +82,7 @@ data servers have failed that per-chunk reconstruction would
 require visiting every chunk, or in which no live client is
 available to drive the repair at all.  The second is layout
 transitions: a file must move from one layout geometry to
-another for policy reasons (migrating to a new coding type, or
+another for policy reasons (migrating to a new encoding type, or
 re-mirroring), for maintenance reasons (evacuating a data
 server ahead of decommission), or for environmental reasons
 (moving between transport-security profiles or between
@@ -130,10 +130,10 @@ The following terms are used with meanings defined in
 - layout, mirror, mirror set, shard, stripe
 - chunk (the unit of client-driven encoded write/read), and the
   chunk state machine (PENDING / FINALIZED / COMMITTED)
-- encoding, coding type, k (number of data shards), m (number of
+- encoding type, k (number of data shards), m (number of
   parity shards)
 - `ffv2_layout4`, `ffv2_mirror4`, `ffv2_data_server4`,
-  `ffv2_coding_type4`, `FFV2_DS_FLAGS_PROXY` -- the layout XDR
+  `ffv2_encoding_type4`, `FFV2_DS_FLAGS_PROXY` -- the layout XDR
   types and flags
 - CHUNK_READ, CHUNK_WRITE, CHUNK_FINALIZE, CHUNK_COMMIT -- the
   chunk-level data-path operations
@@ -402,7 +402,7 @@ additional mirrors") requires transforming a file's layout
 without user visibility.  The transformation is purely a layout
 change; the file contents are unchanged except at the shard
 level.  The MOVE assignment carries the new layout's geometry
-and coding type via the destination deviceid in
+and encoding type via the destination deviceid in
 `proxy_assignment4`; the proxy reshapes the file's shards to
 match.  Because the transformation type (encode / decode /
 transcode) is entirely specified by the (source, destination)
@@ -1191,10 +1191,10 @@ does not own.
 /// const PROXY_MAX_ENCODINGS       = 32;
 ///
 /// struct PROXY_REGISTRATION4args {
-///     uint64_t           pra_registration_id;
-///     ffv2_coding_type4  pra_encodings<PROXY_MAX_ENCODINGS>;
-///     uint32_t           pra_lease;
-///     uint32_t           pra_flags;
+///     uint64_t             pra_registration_id;
+///     ffv2_encoding_type4  pra_encodings<PROXY_MAX_ENCODINGS>;
+///     uint32_t             pra_lease;
+///     uint32_t             pra_flags;
 /// };
 ~~~
 {: #fig-PROXY_REGISTRATION4args title="XDR for PROXY_REGISTRATION4args"}
@@ -1225,7 +1225,7 @@ metadata server records the registration and MAY select that proxy server for
 subsequent MOVE / REPAIR work assignments delivered inline in
 the response to PROXY_PROGRESS.
 
-The pra_encodings field lists the ffv2_coding_type4 values the
+The pra_encodings field lists the ffv2_encoding_type4 values the
 proxy server supports.  The proxy server MUST be able to encode, decode, and
 transcode between any pair of values in this list.  Because
 the transformation class of a `PROXY_OP_MOVE` assignment is
@@ -3065,9 +3065,8 @@ the editors' infrastructure.
 
 This document requires no new IANA registries.  It does consume the
 following NFSv4.2 code points, assigned via the extension process of
-{{RFC8178}} and provisional until confirmed by the working group.
-They are contiguous with, and shift with, the range assigned by
-{{I-D.haynes-nfsv4-flexfiles-v2}}:
+{{RFC8178}}.  They are contiguous with, and shift with, the range
+assigned by {{I-D.haynes-nfsv4-flexfiles-v2}}:
 
 * Operations 96-99: PROXY_REGISTRATION, PROXY_PROGRESS, PROXY_DONE,
   PROXY_CANCEL (Section 6).
