@@ -2055,12 +2055,12 @@ the bit interoperates unchanged.
 When the proxy server issues `PROXY_DONE(pd_stateid, pd_status=NFS4_OK)`,
 the metadata server atomically (in one transaction):
 
-1. Promotes L2 to be the file's layout (D dropped, G promoted)
-2. Drops L1 and L3 from the file's layout records
-3. Retires the in-flight migration record
-4. Issues CB_LAYOUTRECALL for the file's outstanding
-   client-facing layouts that name the proxy server
-5. Defers `REMOVE_MIRROR(D)` until those layouts are returned
+1. promotes L2 to be the file's layout (D dropped, G promoted);
+2. drops L1 and L3 from the file's layout records;
+3. retires the in-flight migration record;
+4. issues CB_LAYOUTRECALL for the file's outstanding
+   client-facing layouts that name the proxy server; and
+5. defers `REMOVE_MIRROR(D)` until those layouts are returned.
 
 On its next LAYOUTGET each client receives the post-migration
 layout (L2): the real data servers, with no proxy server.
@@ -2068,12 +2068,12 @@ layout (L2): the real data servers, with no proxy server.
 When PROXY_DONE indicates failure (or PROXY_CANCEL is issued):
 
 1. L1 is promoted unchanged -- the file falls back to its
-   pre-migration mirror set
+   pre-migration mirror set.
 2. L2 is dropped; the half-filled G instance is internally
-   unlinked
-3. L3 is dropped and the migration record retired
-4. CB_LAYOUTRECALL is issued for the layouts that name the proxy server; on the
-   next LAYOUTGET clients receive L1
+   unlinked.
+3. L3 is dropped and the migration record retired.
+4. CB_LAYOUTRECALL is issued for the layouts that name the
+   proxy server; on the next LAYOUTGET clients receive L1.
 
 ## The swap window
 
