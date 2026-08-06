@@ -1269,46 +1269,47 @@ across reconnect), the proxy server MUST set
 previously returned in `prr_registration_id`; the metadata
 server MUST match this against its live registration table.
 
-The metadata server distinguishes the three cases as follows:
+The metadata server distinguishes four cases:
 
--  `pra_registration_id = PROXY_REGISTRATION_ID_NEW`: fresh
-   registration.  The metadata server MUST assign a new
-   non-zero registration ID, cryptographically bound (see
-   below) to the caller's authenticated identity, and return
-   it in `prr_registration_id`.
+Fresh registration:
 
--  `pra_registration_id` matches a live registration under
-   the caller's authenticated identity: renewal.  The
-   metadata server MUST refresh the granted lease and return
-   the same `prr_registration_id`.
+: `pra_registration_id = PROXY_REGISTRATION_ID_NEW`.  The metadata
+  server MUST assign a new non-zero registration ID,
+  cryptographically bound (see below) to the caller's authenticated
+  identity, and return it in `prr_registration_id`.
 
--  `pra_registration_id` is non-zero but does not match any
-   live registration (unknown or stale ID): the metadata
-   server MUST reject with `NFS4ERR_STALE_CLIENTID`.  This is
-   the outcome a reconnecting proxy server observes when the
-   metadata server has rebooted without persisting its
-   registration table (see {{sec-mds-recovery}}); the proxy
-   server SHOULD retry immediately with
-   `PROXY_REGISTRATION_ID_NEW` (0) to obtain a fresh
-   registration.  The registration table is not required to
-   survive a metadata-server reboot: the wire mechanism does
-   not oblige the metadata server to persist
-   `(prr_registration_id, bound principal, granted
-   capabilities, lease)` across its own restart, and a
-   metadata server that persists none of it is conformant.
-   In-flight migration records tied to the stale
-   `prr_registration_id` are lost per the drop rules in
-   {{sec-lost-migration-records}}; the fresh registration
-   returned by the retry has a new
-   `prr_registration_id` and no prior migration ownership.
+Renewal:
 
--  `pra_registration_id` matches a live registration but the
-   caller's authenticated identity differs from the identity
-   bound to that registration: the metadata server MUST
-   reject with `NFS4ERR_PERM`.  This is the principal
-   binding that prevents a malicious registrant from
-   hijacking another proxy server's slot by guessing its
-   registration ID.
+: `pra_registration_id` matches a live registration under the caller's
+  authenticated identity.  The metadata server MUST refresh the
+  granted lease and return the same `prr_registration_id`.
+
+Unknown or stale registration ID:
+
+: `pra_registration_id` is non-zero but matches no live registration.
+  The metadata server MUST reject with `NFS4ERR_STALE_CLIENTID`.  This
+  is the outcome a reconnecting proxy server observes when the
+  metadata server has rebooted without persisting its registration
+  table (see {{sec-mds-recovery}}); the proxy server SHOULD retry
+  immediately with `PROXY_REGISTRATION_ID_NEW` (0) to obtain a fresh
+  registration.  The registration table is not required to survive a
+  metadata-server reboot: the wire mechanism does not oblige the
+  metadata server to persist `(prr_registration_id, bound principal,
+  granted capabilities, lease)` across its own restart, and a metadata
+  server that persists none of it is conformant.  In-flight migration
+  records tied to the stale `prr_registration_id` are lost per the
+  drop rules in {{sec-lost-migration-records}}; the fresh registration
+  returned by the retry has a new `prr_registration_id` and no prior
+  migration ownership.
+
+Identity mismatch:
+
+: `pra_registration_id` matches a live registration, but the caller's
+  authenticated identity differs from the identity bound to it.  The
+  metadata server MUST reject with `NFS4ERR_PERM`.  This is the
+  principal binding that prevents a malicious registrant from
+  hijacking another proxy server's slot by guessing its registration
+  ID.
 
 The metadata server MUST assign `prr_registration_id` values
 that are unpredictable to any party other than the assigning
@@ -2514,7 +2515,7 @@ following steps in order:
    `NFS4ERR_STALE_CLIENTID`:
 
    : the metadata server lost its registration table across
-     the restart (see the third bullet at
+     the restart (see the unknown-or-stale case in
      {{sec-PROXY_REGISTRATION}}).  The proxy server MUST
      retry PROXY_REGISTRATION with
      `pra_registration_id = PROXY_REGISTRATION_ID_NEW` (0)
