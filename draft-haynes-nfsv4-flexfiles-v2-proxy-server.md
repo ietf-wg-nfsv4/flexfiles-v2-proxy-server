@@ -2114,7 +2114,7 @@ union arm:
 ///
 /// struct open_claim_proxy4 {
 ///         proxy_stateid4  ocp_proxy_stateid;
-///         nfs_fh4         ocp_ps_fh;
+///         nfs_fh4         ocp_proxy_fh;
 /// };
 ///
 /// /* open_claim4 gains the arm:
@@ -2140,7 +2140,7 @@ The operand carries two values:
    assignment; the metadata server does not infer proxy intent from the
    session.
 
-`ocp_ps_fh`:
+`ocp_proxy_fh`:
 :  the filehandle under which the proxy server will serve the file to
    clients: the data-server filehandle that appears in the
    layout the metadata server hands an encoding-incapable client, and the
