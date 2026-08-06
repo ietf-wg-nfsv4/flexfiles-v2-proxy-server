@@ -294,7 +294,7 @@ design decision (delta journaling, partial-range moves),
 orchestration that belongs to a layer above a single
 proxy (multi-proxy pipelines, automated load balancing),
 and proxy-internal behavior that does not surface on the
-wire and therefore needs no standardisation.  Nothing on
+wire and therefore needs no standardization.  Nothing on
 this list is precluded by the current design; each is a
 reasonable future extension.
 
@@ -308,14 +308,6 @@ Journaling and partial moves:
    in the source set; the two-layout state on the metadata server keeps
    client traffic on L1 throughout, with an atomic swap to
    L2 at PROXY_DONE time ({{sec-two-layout-state}}).
-   Delta-journaling mechanisms -- capturing writes against
-   an otherwise-offline source, replaying them on
-   completion, or maintaining reference integrity across
-   detached clones -- are a future extension, as is a
-   partial-range move that would move a byte range while
-   the rest of the file stays on the source.  The
-   whole-file two-layout commit covers every motivating
-   scenario the design currently has.
 
 Orchestration beyond a single proxy:
 :  Multi-proxy pipelines (staged moves for very large
@@ -348,7 +340,7 @@ Proxy-internal features that do not surface on the wire:
    do not require new protocol machinery beyond what the
    PROXY_PROGRESS / PROXY_DONE / PROXY_CANCEL fore-channel
    set already provides, and so they are left to
-   implementation rather than standardised here.
+   implementation rather than standardized here.
 
 # Use Cases
 
@@ -2973,7 +2965,7 @@ conformant with this specification.
 
 Deployments that want local enforcement need a mechanism for
 the proxy server to acquire the metadata server's per-export client-rule list.  This
-document does not standardise such a mechanism;
+document does not standardize such a mechanism;
 implementation-specific options include a control-plane
 probe-protocol
 extension, out-of-band admin distribution, or a future revision
