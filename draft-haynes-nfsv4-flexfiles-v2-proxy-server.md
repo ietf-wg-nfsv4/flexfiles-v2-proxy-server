@@ -1752,8 +1752,8 @@ If all validations succeed, the metadata server atomically:
    migration) MUST be recalled and drained before L3
    bookkeeping is retired -- clients received L3 during the
    active phase and MUST be given the opportunity to complete
-   or abort the associated I/O through the abort fence
-   defined in {{sec-PROXY_CANCEL}}.  Once L3 is drained,
+   or abort the associated I/O through the abort sequence
+   defined in {{sec-abort-sequence}}.  Once L3 is drained,
    external clients transparently see the pre-migration L1;
    no CB_LAYOUTRECALL of L1 is needed because L1 was recalled
    before entering the active phase and is being reissued
@@ -1818,7 +1818,7 @@ that owns the proxy operation identified by `pc_stateid` MUST
 match the caller's, or the metadata server returns `NFS4ERR_PERM`; a proxy server
 cannot cancel another proxy server's migration.
 
-#### Side effects and the abort fence {#sec-abort-fence}
+#### Side effects and the abort sequence {#sec-abort-sequence}
 
 PROXY_CANCEL, PROXY_DONE with a failing `pd_status`, and
 implicit teardown from registration expiry all revert the
@@ -1827,7 +1827,7 @@ L3 without fencing delayed I/O, can leave acknowledged writes
 in the abandoned G or acknowledged writes from a delayed L3
 holder landing after the revert; both produce
 acknowledged-but-unreachable or divergent data.  All three
-paths MUST therefore apply the same abort fence before the
+paths MUST therefore apply the same abort sequence before the
 metadata server discards L2/L3 and before L1 is reissued to
 subsequent LAYOUTGETs:
 
@@ -1880,11 +1880,11 @@ subsequent LAYOUTGETs:
     operator-facing telemetry.  L1 MAY then be reissued to
     ordinary LAYOUTGET traffic.
 
-The abort fence applies verbatim to registration expiry:
+The abort sequence applies verbatim to registration expiry:
 when the metadata server abandons an in-flight migration
 because the owning proxy server's registration lease has
 expired ({{sec-PROXY_REGISTRATION}}), it MUST run the
-five-step fence before dropping the migration record.
+five-step sequence before dropping the migration record.
 
 The distinction between PROXY_DONE(FAIL) and PROXY_CANCEL is
 purely intent / accounting: PROXY_DONE(FAIL) records that the
@@ -1894,7 +1894,7 @@ without attempting it (or while attempting, decided not to
 report a specific failure cause).  A metadata server implementation MAY
 surface the distinction in operator telemetry but MUST NOT
 make any behavioral distinction on the wire.  In particular,
-the abort fence above is identical for both.
+the abort sequence above is identical for both.
 
 # Multi-Proxy Server Assignment Fan-out {#sec-multi-ps-fanout}
 
