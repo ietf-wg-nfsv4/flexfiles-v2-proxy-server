@@ -433,10 +433,12 @@ section of {{I-D.haynes-nfsv4-flexfiles-v2}}.
 
 ## TLS Coverage Transition
 
-A file whose layout currently points at non-TLS-capable data servers
-needs to be migrated to TLS-capable data servers, or vice versa (an
-inventory change, a policy change mandating transport security,
-onboarding a new storage class whose data servers are TLS-only).
+Transport Layer Security (TLS) protects the RPC transport as specified
+by RPC-over-TLS {{RFC9289}}.  A file whose layout currently points at
+data servers that do not support it needs to be migrated to
+TLS-capable data servers, or vice versa (an inventory change, a policy
+change mandating transport security, onboarding a new storage class
+whose data servers are TLS-only).
 A `PROXY_OP_MOVE` assignment applies: the destination data servers
 have the required transport security profile, the source data servers
 are retired.  A
