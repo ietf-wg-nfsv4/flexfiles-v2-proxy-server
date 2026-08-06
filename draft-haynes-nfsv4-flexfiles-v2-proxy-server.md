@@ -1112,17 +1112,12 @@ work assignment for delivery to a proxy server, and includes it as the
 next PROXY_PROGRESS reply ({{sec-PROXY_PROGRESS}}).
 
 The metadata server guarantees that no two proxy_stateids in the same
-(server_state, boot_seq) are equal.  An implementation MAY
-embed the metadata server `boot_seq` in the high-order bytes of
-`other[12]` to enable cheap NFS4ERR_STALE_STATEID detection
-across reboots; this is informative implementation guidance,
-not a wire requirement.  One known implementation uses the
-layout
-`{ uint16_t boot_seq | uint16_t reserved | uint64_t opaque }`
-where the opaque tail is `getrandom(2)` output.  The
-`reserved` field is zero in this revision; implementations
-MUST emit zero and MUST NOT reject non-zero on receipt (left
-as a forward-compat slot for widening `boot_seq`).
+(server_state, boot_seq) are equal.  An implementation MAY embed the
+metadata server `boot_seq` in the high-order bytes of `other[12]` to
+enable cheap NFS4ERR_STALE_STATEID detection across reboots.
+`other[12]` is opaque on the wire, so how a metadata server structures
+it is a local matter: no receiver parses it, and nothing in this
+document depends on its internal layout.
 
 ### Lifetime
 
