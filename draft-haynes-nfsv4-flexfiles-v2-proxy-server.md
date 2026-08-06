@@ -1525,28 +1525,33 @@ server begins by issuing a normal NFSv4 OPEN+LAYOUTGET against
 PROXY_DONE(pa_stateid, ...) ({{sec-PROXY_DONE}}) or
 PROXY_CANCEL(pa_stateid) ({{sec-PROXY_CANCEL}}).
 
-Delivery of a MOVE / REPAIR assignment is at-least-once and
-idempotent, with the proxy server's `OPEN(CLAIM_PROXY)` on the
-assignment's `pa_file_fh` serving as the implicit acknowledgment.
-Concretely: after minting a `proxy_stateid` for an assignment, the
-metadata server MUST include that same `proxy_assignment4` (with
-the same `pa_stateid`, `pa_file_fh`, `pa_source_deviceid`,
-`pa_target_deviceid`, and `pa_descriptor`) in every subsequent
-PROXY_PROGRESS reply to the assigned proxy server until either the
-proxy server presents that `proxy_stateid` in an `OPEN(CLAIM_PROXY)`
-against `pa_file_fh` -- at which point the metadata server MUST
-cease re-delivery and treat the assignment as acknowledged
-(ASSIGNED -> PROXY_ACTIVE, {{sec-state-machine}}) -- or the
-assignment is rescinded via `PROXY_OP_CANCEL_PRIOR`, or the proxy
-server's registration lease expires (at which point the migration
-record is dropped per {{sec-lost-migration-records}}).  Because
-re-delivery is idempotent (same `proxy_stateid` on each PROXY_PROGRESS
-reply) and the eventual `OPEN(CLAIM_PROXY)` is idempotent by
-`(pa_file_fh, proxy_stateid)`, a lost PROXY_PROGRESS reply, a
-concurrent PROXY_PROGRESS in flight during re-delivery, or a
-proxy server that has already picked the assignment up cause no
-duplicate work or spurious state: the proxy server ignores any
-re-delivery of a `proxy_stateid` it has already opened.
+Delivery of a PROXY_OP_MOVE or PROXY_OP_REPAIR assignment is
+at-least-once.  There is no explicit acknowledgment: the proxy
+server's `OPEN(CLAIM_PROXY)` on the assignment's `pa_file_fh` serves
+as one.
+
+After minting a `proxy_stateid` for an assignment, the metadata server
+MUST repeat that `proxy_assignment4`, unchanged in every field, in
+every subsequent PROXY_PROGRESS reply to the assigned proxy server.
+Re-delivery stops when any of the following occurs:
+
+- The proxy server presents that `proxy_stateid` in an
+  `OPEN(CLAIM_PROXY)` against `pa_file_fh`.  The metadata server MUST
+  then cease re-delivery and treat the assignment as acknowledged
+  (ASSIGNED to PROXY_ACTIVE, {{sec-state-machine}}).
+- The metadata server rescinds the assignment via
+  `PROXY_OP_CANCEL_PRIOR`.
+- The proxy server's registration lease expires, dropping the
+  migration record ({{sec-lost-migration-records}}).
+
+Repetition is harmless because both halves are idempotent: every
+re-delivery carries the same `proxy_stateid`, and `OPEN(CLAIM_PROXY)`
+is idempotent by `(pa_file_fh, proxy_stateid)`.  A lost
+PROXY_PROGRESS reply, a PROXY_PROGRESS in flight while the metadata
+server re-delivers, and a proxy server that has already picked the
+assignment up therefore produce neither duplicate work nor spurious
+state; the proxy server ignores any re-delivery of a `proxy_stateid`
+it has already opened.
 
 `pa_file_fh` is an `nfs_fh4` minted by the metadata server and presented to
 the proxy server for use against the same metadata server.  Per
