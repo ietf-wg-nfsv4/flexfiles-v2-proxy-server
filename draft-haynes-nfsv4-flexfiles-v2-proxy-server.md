@@ -3072,7 +3072,7 @@ assigned by {{I-D.haynes-nfsv4-flexfiles-v2}}:
   PROXY_CANCEL (Section 6).
 * proxy_stateid4, a new server-issued stateid type (Section 6.1).
 
-# Interaction with the Main Draft {#interaction}
+# Interaction with the Base Specification {#interaction}
 
 The mechanism this document specifies is built on top of
 four constructs that {{I-D.haynes-nfsv4-flexfiles-v2}}
@@ -3259,17 +3259,18 @@ DEVICEID_REGISTRATION generalization:
    this document re-homes as a specialization of
    DEVICEID_REGISTRATION, keeping its wire shape for the
    proxy arm and adding typed entries for the other
-   capability classes.  The broader op may land in the main
-   draft, in a dedicated draft, or as an extension of this
-   document; settlement of that scoping question is the
-   open item.
+   capability classes.  The broader op may land in
+   {{I-D.haynes-nfsv4-flexfiles-v2}}, in a dedicated draft, or as
+   an extension of this document; settlement of that scoping
+   question is the open item.
 
    The op direction (data server -> metadata server) is the same for both
    specialized PROXY_REGISTRATION and generalized
    DEVICEID_REGISTRATION; that direction does not today
-   exist as a session in the main draft's tight-coupling
-   control plane (which runs metadata server -> data server).  A resolution of
-   this item also settles whether the proxy-server draft
+   exist as a session in the tight-coupling control plane of
+   {{I-D.haynes-nfsv4-flexfiles-v2}} (which runs metadata server ->
+   data server).  A resolution of this item also settles whether
+   the proxy-server draft
    introduces a new data-server-initiated session or whether the
    generalized version does.
 
