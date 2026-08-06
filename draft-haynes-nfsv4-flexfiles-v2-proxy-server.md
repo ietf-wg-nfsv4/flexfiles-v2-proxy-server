@@ -896,8 +896,8 @@ quiesced case they are recalled before the proxy server work starts.
   |       includes MOVE assignment  |  delivers the MOVE work)
   |                                 |
   | ---- PUTFH(pa_file_fh) -------> | (PS picks up the work)
-  | ---- OPEN(CLAIM_PROXY,           |
-  |         pa_stateid) -----------> |
+  | ---- OPEN(CLAIM_PROXY,          |
+  |         pa_stateid) ----------> |
   | ---- LAYOUTGET (L3 composite) > |
   |                                 |
   |  [PS drives move: reads source  |
