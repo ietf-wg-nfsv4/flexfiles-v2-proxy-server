@@ -247,7 +247,7 @@ the proxy server issues ops to the metadata server, and the metadata server retu
 assignments inline in its responses.  No callback channel is
 required for the proxy server protocol.
 
-The fore-channel surface is deliberately small.
+The fore-channel protocol is deliberately small.
 PROXY_REGISTRATION ({{sec-PROXY_REGISTRATION}}) lets the proxy server
 declare the encoding set it supports and its lease.
 PROXY_PROGRESS
@@ -298,7 +298,7 @@ into three groups: features whose absence was an explicit
 design decision (delta journaling, partial-range moves),
 orchestration that belongs to a layer above a single
 proxy (multi-proxy pipelines, automated load balancing),
-and proxy-internal behavior that does not surface on the
+and proxy-internal behavior that does not appear on the
 wire and therefore needs no standardization.  Nothing on
 this list is precluded by the current design; each is a
 reasonable future extension.
@@ -321,8 +321,7 @@ Orchestration beyond a single proxy:
    A metadata server in this revision selects a single proxy server per
    operation; load distribution across many proxies, when
    it matters, is expected to be handled by the metadata server's
-   selection policy and does not surface as new wire
-   protocol.
+   selection policy and requires no new wire protocol.
 
 Server-side copy as an alternative path:
 :  Integration with server-side copy ({{Section 4 of RFC7862}})
@@ -336,7 +335,7 @@ Server-side copy as an alternative path:
    specified in its own extension rather than bolted into
    this document.
 
-Proxy-internal features that do not surface on the wire:
+Proxy-internal features that do not appear on the wire:
 :  A proxy MAY implement content-integrity and
    error-correction layers, encryption and compression
    pass-through, log-structured write staging, and
@@ -2010,8 +2009,8 @@ move operations.
 # Layout Shape During a Proxy Operation {#sec-layout-shape}
 
 The layout the metadata server hands out to clients while a proxy
-operation is active is the mechanism's sole client-facing
-surface.  Everything else in this document -- the session,
+operation is active is the only part of the mechanism a client
+ever sees.  Everything else in this document -- the session,
 the ops, the credential-forwarding rules -- is between the
 metadata server and the proxy server.  The layout shape is therefore what a client
 implementer needs to read to know how its code interacts with
@@ -2655,7 +2654,7 @@ standard NFSv4 reclaim errors and `PROXY_CANCEL` is needed.
 
 # Security Considerations {#sec-security}
 
-The security surface added by this document sits in two
+This document adds security-relevant behavior in two
 places: the session the proxy server establishes with the metadata server, and the
 data path clients take through the proxy server during a proxy
 operation.  The session is narrower than the data path --
@@ -3008,7 +3007,7 @@ client.  The reffs source ships a metadata server, a Proxy Server, and a
 multi-encoding client harness used as the working implementation
 for this draft.  reffs is licensed AGPL-3.0-or-later.
 
-The proxy server surface implemented in reffs covers, at the time of writing:
+reffs implements, at the time of writing:
 
 - The proxy listener model (one process serving its native NFS
   port and a per-`[[proxy_mds]]` proxy server port from independent
