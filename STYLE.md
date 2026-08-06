@@ -14,21 +14,15 @@ It applies to all three drafts:
 Keeping a single copy is deliberate: three copies would drift, and the
 rules were derived from one editorial pass over the base draft.
 
-## Known gaps in this draft
+## Conformance
 
-This draft predates the editorial pass and has not been swept yet. As of
-the guide's writing:
+This draft was brought into conformance in `67424a5`. The §11 pre-commit
+checks are clean; the only surviving short forms are sanctioned
+exceptions:
 
-| Rule | Occurrences here |
-|---|---|
-| `MDS` in prose (§3.1) | 9 |
-| `DS` / `DSes` in prose (§3.1) | 4 / 5 |
-| `FFv2` in body prose (§3.1) | 11 |
-| Markdown emphasis (§5.1) | 16 |
-| British spellings (§2) | a few |
-| `==` in prose (§8) | 1 |
+- `MDS` and `DS` in ASCII sequence diagrams and one table row, where box
+  and column width dominate (§3.1).
+- `FFv2` in the front-matter `abbrev`, which is document metadata rather
+  than prose (§3.2).
 
-Counts are raw matches; some will be legitimate exceptions (wire
-identifiers, table cells, ASCII artwork). Check against the exceptions in
-the guide before changing anything, and re-run the pre-commit greps in
-§11 afterwards.
+Re-run the §11 greps before each commit.
