@@ -1480,13 +1480,14 @@ not want new work simply ignores the assignments past its in-flight
 cap; the metadata server does not retract assignments once
 acknowledged (see below), other than via an explicit
 `PROXY_OP_CANCEL_PRIOR` assignment in a later PROXY_PROGRESS reply.
-Each assignment names a single file (`pa_file_fh`), the source and
-target data servers the migration moves data between
-(`pa_source_deviceid` / `pa_target_deviceid`), and a kind-specific
-opaque descriptor (`pa_descriptor<PROXY_MAX_DESCRIPTOR_BYTES>`,
-bounded at 4096 bytes) for future extensions (for example, a
-precomputed source-layout descriptor so the proxy server can dial
-source data servers without a second LAYOUTGET).  The `pa_stateid`
+Each assignment names the work type (`pa_kind`, described below), a
+single file (`pa_file_fh`), the source and target data servers the
+migration moves data between (`pa_source_deviceid` /
+`pa_target_deviceid`), and an opaque descriptor
+(`pa_descriptor<PROXY_MAX_DESCRIPTOR_BYTES>`, bounded at 4096 bytes)
+reserved for future extensions (for example, a precomputed
+source-layout descriptor so the proxy server can contact the source
+data servers without a second LAYOUTGET).  The `pa_stateid`
 field carries the `proxy_stateid4` ({{sec-proxy-stateid}}) the
 metadata server has minted for this migration; the proxy server
 presents it in the `OPEN(CLAIM_PROXY)` that binds it to the file
@@ -1517,10 +1518,10 @@ The `pa_kind` discriminates the work type:
    already cleaned up the in-flight migration record on its
    side and retired the proxy_stateid).
 
-For each MOVE / REPAIR assignment, the proxy server picks the work up
-by issuing a normal NFSv4 OPEN+LAYOUTGET against `pa_file_fh`
-(the L3 composite layout), shovels bytes per the kind-specific
-protocol, and reports terminal status via
+For each PROXY_OP_MOVE or PROXY_OP_REPAIR assignment, the proxy
+server begins by issuing a normal NFSv4 OPEN+LAYOUTGET against
+`pa_file_fh` (the L3 composite layout), performs the data movement
+`pa_kind` calls for, and reports terminal status via
 PROXY_DONE(pa_stateid, ...) ({{sec-PROXY_DONE}}) or
 PROXY_CANCEL(pa_stateid) ({{sec-PROXY_CANCEL}}).
 
