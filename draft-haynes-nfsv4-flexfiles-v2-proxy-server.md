@@ -3007,8 +3007,8 @@ for this draft.  reffs is licensed AGPL-3.0-or-later.
 The proxy server surface implemented in reffs covers, at the time of writing:
 
 - The proxy listener model (one process serving its native NFS
-  port and a per-`[[proxy_mds]]` proxy server port from independent SB
-  namespaces, see {{sec-design-session}}).
+  port and a per-`[[proxy_mds]]` proxy server port from independent
+  superblock namespaces, see {{sec-design-session}}).
 - `PROXY_REGISTRATION` over RPCSEC_GSS-class auth, presently
   exercised via mutually-authenticated RPC-over-TLS ({{RFC9289}})
   with a client-cert SHA-256 fingerprint allowlist.  AUTH_SYS
@@ -3217,7 +3217,7 @@ RPCSEC_GSSv3 for translating-proxy credential forwarding:
    community is narrow.  Should the draft REQUIRE GSSv3 for
    translating proxies, RECOMMEND it, or leave it as
    implementation-optional?  The answer likely depends on
-   how aggressively the WG wants to push GSSv3 adoption as
+   how aggressively the working group wants to push GSSv3 adoption as
    a side effect of standardizing this mechanism.
 
 DEVICEID_REGISTRATION generalization:
@@ -3254,7 +3254,7 @@ DEVICEID_REGISTRATION generalization:
 
    Under this framing, PROXY_REGISTRATION is one arm of a
    generic DEVICEID_REGISTRATION op: the proxy-capability
-   arm.  If the WG prefers the generalization, the op in
+   arm.  If the working group prefers the generalization, the op in
    this document re-homes as a specialization of
    DEVICEID_REGISTRATION, keeping its wire shape for the
    proxy arm and adding typed entries for the other
