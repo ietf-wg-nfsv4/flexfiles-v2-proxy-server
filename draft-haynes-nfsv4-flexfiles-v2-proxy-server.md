@@ -795,7 +795,7 @@ is not visible to the client.
 ### Pinned definitions
 
 - L1.mirrors = the file's pre-migration mirror set, includes D
-- L2.mirrors = (L1.mirrors \ {D}) union {G}
+- L2.mirrors = L1.mirrors without D, union {G}
 - L3.M1 = L1.mirrors  (proxy server's read-source set)
 - L3.M2 = L1.mirrors union {G}  (proxy server's
   client-side mirroring write-target set)
