@@ -782,11 +782,15 @@ writes both D and G, and because the proxy server is the only writer
 they converge to the same byte image with no inter-writer
 race.
 
-A source mirror MAY be an NFSv3 data server.  When it is, the proxy server
-reads from it using NFSv3 semantics and writes the NFSv4.2
-destination using CHUNK semantics; the asymmetric-protocol
-bridging is the proxy server's responsibility and is not visible to
-the client.
+Either endpoint MAY be an NFSv3 data server.  The proxy server speaks
+to each mirror in that mirror's own protocol: NFSv3 semantics to an
+NFSv3 data server, CHUNK semantics to an NFSv4.2 one.  A migration may
+therefore bridge in either direction, or in neither.  An NFSv3 mirror
+holds the file under FFV2_ENCODING_PASSTHROUGH, since the chunked
+encodings require NFSv4.2's CHUNK operations, so a migration that
+changes the protocol of a mirror is also an encoding transition.  The
+asymmetric-protocol bridging is the proxy server's responsibility and
+is not visible to the client.
 
 ### Pinned definitions
 
