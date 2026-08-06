@@ -962,8 +962,9 @@ Assignment not yet acknowledged by the proxy server:
 :  The metadata server includes a `PROXY_OP_CANCEL_PRIOR` assignment in
    the next PROXY_PROGRESS reply, naming the same
    `(pa_file_fh, pa_target_deviceid)` pair as the prior
-   `PROXY_OP_MOVE` or `PROXY_OP_REPAIR` assignment.  The proxy server, which has not yet OPEN'd
-   the file, simply drops the prior assignment from its
+   `PROXY_OP_MOVE` or `PROXY_OP_REPAIR` assignment.  The proxy server,
+   which has not yet issued `OPEN(CLAIM_PROXY)` for the file, simply
+   drops the prior assignment from its
    in-flight queue.
 
 Assignment acknowledged and in flight:
@@ -2085,8 +2086,9 @@ issues PROXY_DONE the proxy server, as the sole writer, has quiesced its
 M2 fan-out, so the deferral window is short and contains no
 client-visible activity.
 
-A client holding a layout that names the proxy server when CB_LAYOUTRECALL
-arrives returns it and re-LAYOUTGETs in the usual way.
+When CB_LAYOUTRECALL arrives, a client holding a layout that names
+the proxy server returns it and issues a fresh LAYOUTGET in the
+usual way.
 In-flight client I/O to the proxy server across that boundary is handled
 by the in-flight-I/O rules for a proxy server change (see "In-Flight I/O
 When the proxy server Changes").
@@ -2298,8 +2300,8 @@ layout or a proxy server reassignment in return.
 
 If the metadata server recalls the layout mid-operation (the proxy server failed
 and is being replaced, or the operation completed and normal
-data server layouts are being reissued), the client LAYOUTRETURNs as
-usual and reacquires via LAYOUTGET.  The new layout may name
+data server layouts are being reissued), the client issues
+LAYOUTRETURN as usual and reacquires via LAYOUTGET.  The new layout may name
 a different proxy server, a different mirror set, or -- if the proxy
 operation has completed -- the real data servers directly.
 
