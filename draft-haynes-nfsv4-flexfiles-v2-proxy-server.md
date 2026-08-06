@@ -1010,7 +1010,9 @@ the proxy server finishes it; PROXY_CANCEL (99) lets the proxy server
 abort early.  None of these operations is sent by pNFS clients.
 
 ~~~ xdr
-/// /* New operations for the proxy server (proxy server -> metadata server) */
+/// /* New operations for the proxy server
+///  * (proxy server -> metadata server)
+///  */
 ///
 /// const OP_PROXY_REGISTRATION   = 96;
 /// const OP_PROXY_PROGRESS       = 97;
@@ -1431,8 +1433,9 @@ through silence is insufficient.
 /// };
 ///
 /// struct PROXY_PROGRESS4resok {
-///     uint32_t              ppr_lease_remaining_sec;
-///     proxy_assignment4     ppr_assignments<PROXY_MAX_ASSIGNMENTS_PER_OP>;
+///     uint32_t           ppr_lease_remaining_sec;
+///     proxy_assignment4
+///         ppr_assignments<PROXY_MAX_ASSIGNMENTS_PER_OP>;
 /// };
 ///
 /// union PROXY_PROGRESS4res switch (nfsstat4 ppr_status) {
