@@ -159,11 +159,16 @@ Registered proxy server:
 
 Proxy operation:
 :  A metadata-server-orchestrated activity carried out by a
-   proxy server on a single file: either a migration (`PROXY_OP_MOVE`), a
-   repair (`PROXY_OP_REPAIR`), or an encoding translation.  Referred to
-   collectively as an "assignment" once the metadata server
-   has committed it to a specific proxy server and minted a
-   `proxy_stateid` for it ({{sec-proxy-stateid}}).
+   proxy server on a single file: a migration (`PROXY_OP_MOVE`), a
+   repair (`PROXY_OP_REPAIR`), or an encoding translation.  The
+   first two are delivered to the proxy server as work; either is
+   referred to as an "assignment" once the metadata server has
+   committed it to a specific proxy server and minted a
+   `proxy_stateid` for it ({{sec-proxy-stateid}}).  An encoding
+   translation has no `proxy_op_kind4` value and is never
+   assigned: the metadata server routes an encoding-ignorant
+   client to the proxy server by the layout it hands out, and the
+   file's own state does not change ({{sec-encoding-translation}}).
 
 Migration:
 :  A `PROXY_OP_MOVE` proxy operation that shifts a file
@@ -484,7 +489,7 @@ such a client either retries with a different supported_types
 hint, falls back to metadata-server-terminated I/O, or (this case) is
 routed through a proxy that translates on its behalf.
 
-Unlike the move / repair / evacuation / transition use cases
+Unlike the move, repair, evacuation, and transition use cases
 above, encoding translation is persistent per client.  The
 file itself is not changing state.  What changes is the layout
 the metadata server hands to an encoding-ignorant client: that client gets a
